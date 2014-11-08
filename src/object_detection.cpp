@@ -4,10 +4,11 @@ namespace object_detection
 {
 Object_Detection::Object_Detection(const ros::NodeHandle& n,
                                    const ros::NodeHandle& n_private)
-    : n_(n), n_private_(n_private), frame_counter_(0), started_(false)
+    : n_(n), n_private_(n_private), frame_counter_(0), started_(false), it_(n), detected_object_(false)
 {
     // ** Publishers
-    /// @todo
+    image_pub_ = it_.advertise("/object_detection/image", 1);
+    speaker_pub_ = n_.advertise<std_msgs::String>("/espeak/string", 1000);
 
     // ** Subscribers
     rgb_sub_.subscribe(n_, "/camera/rgb/image_raw", QUEUE_SIZE);
@@ -15,6 +16,9 @@ Object_Detection::Object_Detection(const ros::NodeHandle& n,
 
     rgbd_sync_.reset(new RGBD_Sync(RGBD_Sync_Policy(QUEUE_SIZE), rgb_sub_, depth_sub_));
     rgbd_sync_->registerCallback(boost::bind(&Object_Detection::RGBD_Callback, this, _1, _2));
+
+    // ** Services
+    service_client_ = n_.serviceClient<object_recognition::Recognition>("/object_recognition/recognition");
 
     // ** Create ROI
     ROI_ = cv::Mat::zeros(IMG_ROWS*SCALE_FACTOR, IMG_COLS*SCALE_FACTOR, CV_8UC1);
@@ -32,7 +36,7 @@ Object_Detection::Object_Detection(const ros::NodeHandle& n,
 
 void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
                                      const sensor_msgs::ImageConstPtr &depth_msg)
-{    
+{
     ros::WallTime t_begin = ros::WallTime::now();
     if(frame_counter_ > 10 || started_)
     {
@@ -92,15 +96,59 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         // ** Color analysis (Ryan)
         t1 = ros::WallTime::now();
         cv::Point2i mass_center;
-        bool found_object = color_analysis(rgb_filtered, mass_center);
+        cv::Mat out_image;
+        bool found_object = color_analysis(rgb_filtered, mass_center, out_image);
         t2 = ros::WallTime::now();
         double t_color = RAS_Utils::time_diff_ms(t1, t2);
 
         // ** Call the recognition node if object found
         if (found_object)
         {
-            /// @todo
+            if(!detected_object_)
+            {
+                detected_object_ = true;
+                // ** Publish to speaker
+                std_msgs::String msg;
+                msg.data = "I see an object";
+                speaker_pub_.publish(msg);
+
+                /// @todo contact brain node in order to switch the navigation mode: move towards robot
+            }
+
+            // ** Call recognition if close enough
+            if(mass_center.y > MIN_MASS_CENTER_Y) // If the object is close enough
+            {
+                ///@todo contact the brain node so that it can stop the robot
+                ///
+
+                // Convert to ROS msg
+                cv_bridge::CvImage out_msg;
+                out_msg.header = rgb_msg->header;
+                out_msg.encoding = sensor_msgs::image_encodings::MONO8;
+                out_msg.image = out_image;
+
+                // Publish to Services
+                image_pub_.publish(rgb_msg); // Republish RGB image
+
+                // Call recognition service
+                object_recognition::Recognition srv;
+
+                srv.request.rgb_img = *rgb_msg;
+                srv.request.mask    = *out_msg.toImageMsg();
+                if (service_client_.call(srv))
+                {
+                    detected_object_ = false;
+                }
+                else{
+                    ROS_ERROR("Failed to call recognition service");
+                }
+            }
+            else{
+                /// @todo publish mass_center
+            }
         }
+
+
         // ** Print statistics
 //        ROS_INFO("[Object Detection] Build PCL: %.3f,  Plane: %.3f, Backproject: %.3f, Color: %.3f, TOTAL: %.3f ms",
 //                 t_build_pcl, t_remove_plane, t_backproject, t_color, t_total);
@@ -208,7 +256,8 @@ void Object_Detection::backproject_floor(const pcl::PointCloud<pcl::PointXYZRGB>
 }
 
 bool Object_Detection::color_analysis(const cv::Mat &img,
-                                            cv::Point2i &mass_center)
+                                            cv::Point2i &mass_center,
+                                            cv::Mat &out_img)
 {
     ////////////////////////////////////////////
     //             Parameters                 //
@@ -338,15 +387,20 @@ bool Object_Detection::color_analysis(const cv::Mat &img,
             //        6) Check if the object is found and break the loop accordingly         //
             ///////////////////////////////////////////////////////////////////////////////////
 
-            if (max_size > pixel_threshhold)
-            {
+//            if (max_size > pixel_threshhold)
+//            {
                 // ** Get mass center
                 biggest_contour = contours[max_i];
                 cv::Moments mu = moments(biggest_contour,false);
-                mass_center.x = mu.m10/mu.m00;
-                mass_center.y = mu.m01/mu.m00;
+                mass_center.x = (mu.m10/mu.m00) / SCALE_FACTOR;
+                mass_center.y = (mu.m01/mu.m00) / SCALE_FACTOR;
+
+                //** Create image to publish
+                out_img = cv::Mat::zeros(img.rows, img.cols, CV_8UC1);
+                cv::drawContours(out_img,contours, max_i, cv::Scalar(255), CV_FILLED);
+                cv::resize(out_img, out_img, cv::Size(0,0), 1.0/SCALE_FACTOR, 1.0/SCALE_FACTOR); // So that we can get more detail
                 return true;
-            }
+//            }
         }
     }
     return false;
