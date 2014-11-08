@@ -16,7 +16,9 @@
 #include <cv_bridge/cv_bridge.h>
 #include <message_filters/subscriber.h>
 
-// PCL
+// Services
+#include "object_recognition/Recognition.h"
+
 // PCL
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
@@ -57,6 +59,8 @@
 #define ROI_MIN_V       50              *SCALE_FACTOR
 #define ROI_MAX_V       (IMG_ROWS - 50) *SCALE_FACTOR
 
+// ** Object detection
+#define MIN_MASS_CENTER_Y IMG_ROWS - 100
 namespace object_detection
 {
 class Object_Detection{
@@ -78,12 +82,15 @@ public:
 
 private:
     ros::NodeHandle n_, n_private_;
-
-
     message_filters::Subscriber<sensor_msgs::Image> rgb_sub_;
     message_filters::Subscriber<sensor_msgs::Image> depth_sub_;
     boost::shared_ptr<RGBD_Sync> rgbd_sync_;
+    image_transport::ImageTransport it_;
+    image_transport::Publisher image_pub_;
+    image_transport::Publisher mask_pub_;
 
+    ros::ServiceClient service_client_;
+    ros::Publisher speaker_pub_;
     void buildPointCloud(const cv::Mat &rgb_img,
                          const cv::Mat &depth_img,
                          pcl::PointCloud<pcl::PointXYZRGB> &cloud);
@@ -92,11 +99,11 @@ private:
     void backproject_floor(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &floor_cloud,
                             cv::Mat &floor_mask);
 
-    bool color_analysis(const cv::Mat &img, cv::Point2i &mass_center);
+    bool color_analysis(const cv::Mat &img, cv::Point2i &mass_center, cv::Mat &out_img);
     ros::WallTime ros_time;
     int frame_counter_;
     bool started_;
+    bool detected_object_;
     cv::Mat ROI_;
 };
 }
-
