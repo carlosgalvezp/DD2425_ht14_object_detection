@@ -11,6 +11,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   image_transport
   cv_bridge
+  nodelet
 )
 
 ## System dependencies are found with CMake's conventions
@@ -83,7 +84,7 @@ find_package(catkin REQUIRED COMPONENTS
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-#  INCLUDE_DIRS include
+  INCLUDE_DIRS include
 #  LIBRARIES object_detection
 #  CATKIN_DEPENDS ras_utils roscpp rospy std_msgs
 #  DEPENDS system_lib
@@ -96,14 +97,10 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 # include_directories(include)
-include_directories(
+include_directories(include
   ${catkin_INCLUDE_DIRS}
 )
 
-## Declare a cpp library
-# add_library(object_detection
-#   src/${PROJECT_NAME}/object_detection.cpp
-# )
 
 ## Declare a cpp executable
 # add_executable(object_detection_node src/object_detection_node.cpp)
@@ -123,8 +120,14 @@ include_directories(${OpenCV_INCLUDE_DIRS})
 link_directories(${OpenCV_LIBRARY_DIRS})
 link_libraries(${OpenCV_LIBRARIES})
 
+# PCL
+find_package(PCL REQUIRED)
+include_directories(${PCL_INCLUDE_DIRS})
+link_directories(${PCL_LIBRARY_DIRS})
+link_libraries(${PCL_LIBRARIES})
+
 # Sources
-file (GLOB_RECURSE SOURCES src/*.cpp)
+file (GLOB_RECURSE SOURCES src/*.cpp include/${PROJECT_NAME}/*.h)
 ## Declare a cpp executable
 add_executable(${PROJECT_NAME} ${SOURCES})
 
@@ -133,7 +136,12 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 # add_dependencies(object_detection_node object_detection_generate_messages_cpp)
 
 ## Specify libraries to link a library or executable target against
-target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
+
+# Declare a cpp library for NODELET
+add_library(Object_Detection_Nodelet ${SOURCES})
+target_link_libraries(Object_Detection_Nodelet ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
+
 
 #############
 ## Install ##
