@@ -1,0 +1,7 @@
+<library path="lib/libObject_Detection_Nodelet">
+  <class name="object_detection/Object_Detection_Nodelet" type="object_detection::Object_Detection_Nodelet" base_class_type="nodelet::Nodelet">
+  <description>
+  This is my nodelet.
+  </description>
+  </class>
+</library>
