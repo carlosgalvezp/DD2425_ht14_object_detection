@@ -17,7 +17,7 @@
 #include <message_filters/subscriber.h>
 
 // Services
-#include "object_recognition/Recognition.h"
+#include <ras_srv_msgs/Recognition.h>
 
 // PCL
 #include <pcl/point_types.h>

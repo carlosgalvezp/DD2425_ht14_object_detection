@@ -18,7 +18,7 @@ Object_Detection::Object_Detection(const ros::NodeHandle& n,
     rgbd_sync_->registerCallback(boost::bind(&Object_Detection::RGBD_Callback, this, _1, _2));
 
     // ** Services
-    service_client_ = n_.serviceClient<object_recognition::Recognition>("/object_recognition/recognition");
+    service_client_ = n_.serviceClient<ras_srv_msgs::Recognition>("/object_recognition/recognition");
 
     // ** Create ROI
     ROI_ = cv::Mat::zeros(IMG_ROWS*SCALE_FACTOR, IMG_COLS*SCALE_FACTOR, CV_8UC1);
@@ -131,7 +131,7 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
                 image_pub_.publish(rgb_msg); // Republish RGB image
 
                 // Call recognition service
-                object_recognition::Recognition srv;
+                ras_srv_msgs::Recognition srv;
 
                 srv.request.rgb_img = *rgb_msg;
                 srv.request.mask    = *out_msg.toImageMsg();
