@@ -38,7 +38,7 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
                                      const sensor_msgs::ImageConstPtr &depth_msg)
 {
     ros::WallTime t_begin = ros::WallTime::now();
-    if(frame_counter_ > 10 || started_)
+    if(frame_counter_ > 100 || started_)
     {
         started_ = true;
         // ** Convert ROS messages to OpenCV images and scale
@@ -98,8 +98,9 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         cv::Point2i mass_center;
         cv::Mat out_image;
         bool found_object = color_analysis(rgb_filtered, mass_center, out_image);
-        t2 = ros::WallTime::now();
-        double t_color = RAS_Utils::time_diff_ms(t1, t2);
+
+        cv::imshow("Color mask", out_image);
+        cv::waitKey(1);
 
         // ** Call the recognition node if object found
         if (found_object)
@@ -110,7 +111,7 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
                 // ** Publish to speaker
                 std_msgs::String msg;
                 msg.data = "I see an object";
-                speaker_pub_.publish(msg);
+//                speaker_pub_.publish(msg);
 
                 /// @todo contact brain node in order to switch the navigation mode: move towards robot
             }
@@ -131,17 +132,17 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
                 image_pub_.publish(rgb_msg); // Republish RGB image
 
                 // Call recognition service
-                ras_srv_msgs::Recognition srv;
+//                ras_srv_msgs::Recognition srv;
 
-                srv.request.rgb_img = *rgb_msg;
-                srv.request.mask    = *out_msg.toImageMsg();
-                if (service_client_.call(srv))
-                {
-                    detected_object_ = false;
-                }
-                else{
-                    ROS_ERROR("Failed to call recognition service");
-                }
+//                srv.request.rgb_img = *rgb_msg;
+//                srv.request.mask    = *out_msg.toImageMsg();
+//                if (service_client_.call(srv))
+//                {
+//                    detected_object_ = false;
+//                }
+//                else{
+//                    ROS_ERROR("Failed to call recognition service");
+//                }
             }
             else{
                 /// @todo publish mass_center
@@ -263,19 +264,21 @@ bool Object_Detection::color_analysis(const cv::Mat &img,
     //             Parameters                 //
     ////////////////////////////////////////////
 
-    int number_of_colors = 5; //blue,red,green,purple,orange
+    int number_of_colors = 5; //blue,red,green,purple,yellow
     int pixel_threshhold=200;
     int erode_times=1;
     int dilate_times=1;
 
-    int hue_low_blue =15; int hue_low_red =115; int hue_low_green =55; int hue_low_purple =140; int hue_low_orange =110;
-    int hue_high_blue=25; int hue_high_red=120; int hue_high_green=65; int hue_high_purple=170; int hue_high_orange=120;
+    int hue_low_blue =5; int hue_low_red =105; int hue_low_green =50; int hue_low_purple =140; int hue_low_orange =110;
+    int hue_high_blue=25; int hue_high_red=130; int hue_high_green=85; int hue_high_purple=170; int hue_high_orange=120;
     //Hue values: Blue(15-25), Red(115-120), Green(55-65), Purple(140-170), Orange(110-120)
     //Perhaps to use saturation and brightness to distinguish orange with red, or to increase contrast of input image
     int sat_low=1;
     int sat_high=255;
     int bright_low=1;
     int bright_high=255;
+
+    out_img = cv::Mat::zeros(img.rows, img.cols, CV_8UC1);
 
     ////////////////////////////////////////////////
     //       2) CONVERT BGR IMAGE TO HSV IMAGE    //
@@ -289,13 +292,13 @@ bool Object_Detection::color_analysis(const cv::Mat &img,
     //   LOOP START    //
     /////////////////////
 
-    int i = 0;
-    while (i<number_of_colors)
-    {
+    int i = 1;
+//    while (i<number_of_colors)
+//    {
         //cout<< "LOOP BEGIN!"<<endl;
         //waitKey(0); //wait infinite time for a keypress
 
-        i = i + 1;
+//        i = i + 1;
         //cout << "value of i: " << i << endl;
 
 
@@ -303,7 +306,7 @@ bool Object_Detection::color_analysis(const cv::Mat &img,
         //       3)Convert HSV image into Binary image by providing Higher and lower HSV ranges       //
         ////////////////////////////////////////////////////////////////////////////////////////////////
 
-        cv::Mat img_binary;
+    cv::Mat img_binary = cv::Mat::zeros(img_hsv.rows, img_hsv.cols, CV_8UC1);
 
         switch (i)
         {
@@ -314,8 +317,8 @@ bool Object_Detection::color_analysis(const cv::Mat &img,
 //                std::cout << "BLUE:"<< std::endl;
                 break;
             case 2:
-                cv::inRange(img_hsv, cv::Scalar(hue_low_red, sat_low, bright_low),
-                                 cv::Scalar(hue_high_red, sat_high, bright_high),
+                cv::inRange(img_hsv, cv::Scalar(hue_low_red, 100, bright_low),
+                                 cv::Scalar(hue_high_red, 255, bright_high),
                         img_binary);
 //                std::cout << "RED:"<< std::endl;
                 break;
@@ -333,8 +336,8 @@ bool Object_Detection::color_analysis(const cv::Mat &img,
 //                std::cout << "PURPLE:"<< std::endl;
                 break;
             case 5:
-                cv::inRange(img_hsv, cv::Scalar(hue_low_orange, sat_low, bright_low),
-                                     cv::Scalar(hue_high_orange, sat_high, bright_high),
+                cv::inRange(img_hsv, cv::Scalar(85, 100, bright_low),
+                                     cv::Scalar(105, 255, bright_high),
                             img_binary);
 //                std::cout << "ORANGE:"<< std::endl;
                 break;
@@ -394,15 +397,14 @@ bool Object_Detection::color_analysis(const cv::Mat &img,
                 cv::Moments mu = moments(biggest_contour,false);
                 mass_center.x = (mu.m10/mu.m00) / SCALE_FACTOR;
                 mass_center.y = (mu.m01/mu.m00) / SCALE_FACTOR;
-
                 //** Create image to publish
-                out_img = cv::Mat::zeros(img.rows, img.cols, CV_8UC1);
                 cv::drawContours(out_img,contours, max_i, cv::Scalar(255), CV_FILLED);
                 cv::resize(out_img, out_img, cv::Size(0,0), 1.0/SCALE_FACTOR, 1.0/SCALE_FACTOR); // So that we can get more detail
                 return true;
 //            }
         }
-    }
+//    }
+    cv::resize(out_img, out_img, cv::Size(0,0), 1.0/SCALE_FACTOR, 1.0/SCALE_FACTOR); // So that we can get more detail
     return false;
 }
 
