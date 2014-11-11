@@ -97,13 +97,13 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         t1 = ros::WallTime::now();
         cv::Point2i mass_center;
         cv::Mat out_image;
-        bool found_object = color_analysis(rgb_filtered, mass_center, out_image);
+        int color = color_analysis(rgb_filtered, mass_center, out_image);
 
         cv::imshow("Color mask", out_image);
         cv::waitKey(1);
 
         // ** Call the recognition node if object found
-        if (found_object)
+        if (color >= 0)
         {
             if(!detected_object_)
             {
@@ -111,6 +111,7 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
                 // ** Publish to speaker
                 std_msgs::String msg;
                 msg.data = "I see an object";
+                ROS_WARN("OBJECT DETECTED");
 //                speaker_pub_.publish(msg);
 
                 /// @todo contact brain node in order to switch the navigation mode: move towards robot
@@ -132,17 +133,18 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
                 image_pub_.publish(rgb_msg); // Republish RGB image
 
                 // Call recognition service
-//                ras_srv_msgs::Recognition srv;
+                ras_srv_msgs::Recognition srv;
 
-//                srv.request.rgb_img = *rgb_msg;
-//                srv.request.mask    = *out_msg.toImageMsg();
-//                if (service_client_.call(srv))
-//                {
-//                    detected_object_ = false;
-//                }
-//                else{
-//                    ROS_ERROR("Failed to call recognition service");
-//                }
+                srv.request.rgb_img = *rgb_msg;
+                srv.request.mask    = *out_msg.toImageMsg();
+                srv.request.color   = color;
+                if (service_client_.call(srv))
+                {
+                    detected_object_ = false;
+                }
+                else{
+                    ROS_ERROR("Failed to call recognition service");
+                }
             }
             else{
                 /// @todo publish mass_center
@@ -256,7 +258,7 @@ void Object_Detection::backproject_floor(const pcl::PointCloud<pcl::PointXYZRGB>
     cv::dilate(floor_mask, floor_mask, element);
 }
 
-bool Object_Detection::color_analysis(const cv::Mat &img,
+int Object_Detection::color_analysis(const cv::Mat &img,
                                             cv::Point2i &mass_center,
                                             cv::Mat &out_img)
 {
@@ -269,8 +271,8 @@ bool Object_Detection::color_analysis(const cv::Mat &img,
     int erode_times=1;
     int dilate_times=1;
 
-    int hue_low_blue =5; int hue_low_red =105; int hue_low_green =50; int hue_low_purple =140; int hue_low_orange =110;
-    int hue_high_blue=25; int hue_high_red=130; int hue_high_green=85; int hue_high_purple=170; int hue_high_orange=120;
+    int hue_low_blue =5; int hue_low_red =105; int hue_low_green =50; int hue_low_purple =140; int hue_low_yellow =85;
+    int hue_high_blue=25; int hue_high_red=130; int hue_high_green=85; int hue_high_purple=170; int hue_high_yellow=105;
     //Hue values: Blue(15-25), Red(115-120), Green(55-65), Purple(140-170), Orange(110-120)
     //Perhaps to use saturation and brightness to distinguish orange with red, or to increase contrast of input image
     int sat_low=1;
@@ -292,9 +294,8 @@ bool Object_Detection::color_analysis(const cv::Mat &img,
     //   LOOP START    //
     /////////////////////
 
-    int i = 1;
-//    while (i<number_of_colors)
-//    {
+    for(int i = 0; i < number_of_colors; ++i)
+    {
         //cout<< "LOOP BEGIN!"<<endl;
         //waitKey(0); //wait infinite time for a keypress
 
@@ -310,36 +311,31 @@ bool Object_Detection::color_analysis(const cv::Mat &img,
 
         switch (i)
         {
-            case 1:
+            case 0:
                 cv::inRange(img_hsv, cv::Scalar(hue_low_blue, sat_low, bright_low),
                                      cv::Scalar(hue_high_blue, sat_high, bright_high),
                             img_binary);
-//                std::cout << "BLUE:"<< std::endl;
                 break;
-            case 2:
+            case 1:
                 cv::inRange(img_hsv, cv::Scalar(hue_low_red, 100, bright_low),
                                  cv::Scalar(hue_high_red, 255, bright_high),
                         img_binary);
-//                std::cout << "RED:"<< std::endl;
                 break;
-            case 3:
+            case 2:
 
                 cv::inRange(img_hsv, cv::Scalar(hue_low_green, sat_low, bright_low),
                                      cv::Scalar(hue_high_green, sat_high, bright_high),
                             img_binary);
-//                std::cout << "GREEN:"<< std::endl;
                 break;
-            case 4:
+            case 3:
                 cv::inRange(img_hsv, cv::Scalar(hue_low_purple, sat_low, bright_low),
                                      cv::Scalar(hue_high_purple, sat_high, bright_high),
                             img_binary);
-//                std::cout << "PURPLE:"<< std::endl;
                 break;
-            case 5:
-                cv::inRange(img_hsv, cv::Scalar(85, 100, bright_low),
-                                     cv::Scalar(105, 255, bright_high),
+            case 4:
+                cv::inRange(img_hsv, cv::Scalar(hue_low_yellow, 100, bright_low),
+                                     cv::Scalar(hue_low_yellow, 255, bright_high),
                             img_binary);
-//                std::cout << "ORANGE:"<< std::endl;
                 break;
         }
 //        cv::imshow("win2",img_binary);
@@ -356,7 +352,6 @@ bool Object_Detection::color_analysis(const cv::Mat &img,
 //        cv::imshow("After erode", img_binary); //display erode image
 //        cv::waitKey(1);
 
-
         ////////////////////////////////////////
         //       5) FIND CONTOUR              //
         ////////////////////////////////////////
@@ -365,14 +360,6 @@ bool Object_Detection::color_analysis(const cv::Mat &img,
         if(contours.size() > 0)
         {
             std::vector<cv::Point> biggest_contour;
-
-//              cv::Mat img_contour = cv::Mat::zeros(img_dilate.rows, img_dilate.cols, CV_8UC1);  //if use CV_8UC3, the contour will be colored instead of grayscale
-//            cv::Scalar color(255);//If use colored version, color(255,255,255) means white and color(0,0,0) means black, color(255) be enough for white for gray-scale
-    //        cv::drawContours(img_contour,contours,-1,color,0);  //-1 means draw all contours, 0 means single pixel thickness
-    //        cv::namedWindow( "Win5", CV_WINDOW_AUTOSIZE);
-    //        cv::imshow( "Win5", img_contour );
-
-    //        cv::waitKey(1); //wait infinite time for a keypress
 
             // ** Get biggest contour
             double max_size = -1;
@@ -390,8 +377,8 @@ bool Object_Detection::color_analysis(const cv::Mat &img,
             //        6) Check if the object is found and break the loop accordingly         //
             ///////////////////////////////////////////////////////////////////////////////////
 
-//            if (max_size > pixel_threshhold)
-//            {
+            if (max_size > pixel_threshhold)
+            {
                 // ** Get mass center
                 biggest_contour = contours[max_i];
                 cv::Moments mu = moments(biggest_contour,false);
@@ -400,12 +387,12 @@ bool Object_Detection::color_analysis(const cv::Mat &img,
                 //** Create image to publish
                 cv::drawContours(out_img,contours, max_i, cv::Scalar(255), CV_FILLED);
                 cv::resize(out_img, out_img, cv::Size(0,0), 1.0/SCALE_FACTOR, 1.0/SCALE_FACTOR); // So that we can get more detail
-                return true;
-//            }
+                return i;
+            }
         }
-//    }
+    }
     cv::resize(out_img, out_img, cv::Size(0,0), 1.0/SCALE_FACTOR, 1.0/SCALE_FACTOR); // So that we can get more detail
-    return false;
+    return -1;
 }
 
 }  // namespace
