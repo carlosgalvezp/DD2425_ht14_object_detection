@@ -99,7 +99,7 @@ private:
     void backproject_floor(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &floor_cloud,
                             cv::Mat &floor_mask);
 
-    bool color_analysis(const cv::Mat &img, cv::Point2i &mass_center, cv::Mat &out_img);
+    int color_analysis(const cv::Mat &img, cv::Point2i &mass_center, cv::Mat &out_img);
     ros::WallTime ros_time;
     int frame_counter_;
     bool started_;
