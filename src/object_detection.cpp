@@ -118,8 +118,8 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
             }
 
             // ** Call recognition if close enough
-            if(mass_center.y > MIN_MASS_CENTER_Y) // If the object is close enough
-            {
+//            if(mass_center.y > MIN_MASS_CENTER_Y) // If the object is close enough
+//            {
                 ///@todo contact the brain node so that it can stop the robot
                 ///
 
@@ -145,10 +145,10 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
                 else{
                     ROS_ERROR("Failed to call recognition service");
                 }
-            }
-            else{
+//            }
+//            else{
                 /// @todo publish mass_center
-            }
+//            }
         }
 
 
@@ -160,7 +160,7 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         frame_counter_++;
 
     ros::WallTime t_end = ros::WallTime::now();
-    ROS_INFO("[Object Detection] %.3f ms", RAS_Utils::time_diff_ms(t_begin, t_end));
+//    ROS_INFO("[Object Detection] %.3f ms", RAS_Utils::time_diff_ms(t_begin, t_end));
 }
 
 void Object_Detection::buildPointCloud(const cv::Mat &rgb_img,
@@ -334,13 +334,12 @@ int Object_Detection::color_analysis(const cv::Mat &img,
                 break;
             case 4:
                 cv::inRange(img_hsv, cv::Scalar(hue_low_yellow, 100, bright_low),
-                                     cv::Scalar(hue_low_yellow, 255, bright_high),
+                                     cv::Scalar(hue_high_yellow, 255, bright_high),
                             img_binary);
                 break;
         }
-//        cv::imshow("win2",img_binary);
-
-//        cv::waitKey(1);
+        cv::imshow("win2",img_binary);
+        cv::waitKey(1);
 
 
         ////////////////////////////////////////////////
