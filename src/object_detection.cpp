@@ -20,6 +20,10 @@ Object_Detection::Object_Detection(const ros::NodeHandle& n,
     // ** Services
     service_client_ = n_.serviceClient<ras_srv_msgs::Recognition>("/object_recognition/recognition");
 
+    // ** Dynamic reconfigure
+    DR_f_ = boost::bind(&Object_Detection::DR_Callback, this, _1, _2);
+    DR_server_.setCallback(DR_f_);
+
     // ** Create ROI
     ROI_ = cv::Mat::zeros(IMG_ROWS*SCALE_FACTOR, IMG_COLS*SCALE_FACTOR, CV_8UC1);
     for(unsigned int v = 0; v < ROI_.rows; ++v)
@@ -89,7 +93,10 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
 
         // ** Apply mask to remove floor in 2D
         cv::Mat rgb_filtered; //= cv::Mat::zeros(rgb_img.rows, rgb_img.cols, CV_8UC3);
-        rgb_img_scaled.copyTo(rgb_filtered, floor_mask);
+        if(hsv_params_.remove_floor)
+            rgb_img_scaled.copyTo(rgb_filtered, floor_mask);
+        else
+            rgb_img_scaled.copyTo(rgb_filtered);
         cv::imshow("Filtered image",rgb_filtered);
         cv::waitKey(1);
 
@@ -311,32 +318,51 @@ int Object_Detection::color_analysis(const cv::Mat &img,
 
         switch (i)
         {
-            case 0:
-                cv::inRange(img_hsv, cv::Scalar(hue_low_blue, sat_low, bright_low),
-                                     cv::Scalar(hue_high_blue, sat_high, bright_high),
+            case 0: // BLUE
+                cv::inRange(img_hsv, cv::Scalar(hsv_params_.B_H_min, hsv_params_.B_S_min, hsv_params_.B_V_min),
+                                     cv::Scalar(hsv_params_.B_H_max, hsv_params_.B_S_max, hsv_params_.B_V_max),
                             img_binary);
+                if(hsv_params_.B_display){
+                    cv::imshow("Blue mask", img_binary);
+                    cv::waitKey(1);
+                }
                 break;
-            case 1:
-                cv::inRange(img_hsv, cv::Scalar(hue_low_red, 100, bright_low),
-                                 cv::Scalar(hue_high_red, 255, bright_high),
+            case 1: // RED
+            cv::inRange(img_hsv, cv::Scalar(hsv_params_.R_H_min, hsv_params_.R_S_min, hsv_params_.R_V_min),
+                                 cv::Scalar(hsv_params_.R_H_max, hsv_params_.R_S_max, hsv_params_.R_V_max),
                         img_binary);
+                if(hsv_params_.R_display){
+                    cv::imshow("Red mask", img_binary);
+                    cv::waitKey(1);
+                }
+            break;
+            case 2: // GREEN
+            cv::inRange(img_hsv, cv::Scalar(hsv_params_.G_H_min, hsv_params_.G_S_min, hsv_params_.G_V_min),
+                                 cv::Scalar(hsv_params_.G_H_max, hsv_params_.G_S_max, hsv_params_.G_V_max),
+                        img_binary);
+                if(hsv_params_.G_display){
+                    cv::imshow("Green mask", img_binary);
+                    cv::waitKey(1);
+                }
                 break;
-            case 2:
-
-                cv::inRange(img_hsv, cv::Scalar(hue_low_green, sat_low, bright_low),
-                                     cv::Scalar(hue_high_green, sat_high, bright_high),
-                            img_binary);
+            case 3: // YELLOW
+            cv::inRange(img_hsv, cv::Scalar(hsv_params_.Y_H_min, hsv_params_.Y_S_min, hsv_params_.Y_V_min),
+                                 cv::Scalar(hsv_params_.Y_H_max, hsv_params_.Y_S_max, hsv_params_.Y_V_max),
+                        img_binary);
+                if(hsv_params_.Y_display){
+                    cv::imshow("Yellow mask", img_binary);
+                    cv::waitKey(1);
+                }
                 break;
-            case 3:
-                cv::inRange(img_hsv, cv::Scalar(hue_low_purple, sat_low, bright_low),
-                                     cv::Scalar(hue_high_purple, sat_high, bright_high),
-                            img_binary);
-                break;
-            case 4:
-                cv::inRange(img_hsv, cv::Scalar(hue_low_yellow, 100, bright_low),
-                                     cv::Scalar(hue_high_yellow, 255, bright_high),
-                            img_binary);
-                break;
+            case 4: // PURPLE
+            cv::inRange(img_hsv, cv::Scalar(hsv_params_.P_H_min, hsv_params_.P_S_min, hsv_params_.P_V_min),
+                                 cv::Scalar(hsv_params_.P_H_max, hsv_params_.P_S_max, hsv_params_.P_V_max),
+                        img_binary);
+                if(hsv_params_.P_display){
+                    cv::imshow("Purple mask", img_binary);
+                    cv::waitKey(1);
+                }
+            break;
         }
         cv::imshow("win2",img_binary);
         cv::waitKey(1);
@@ -386,12 +412,58 @@ int Object_Detection::color_analysis(const cv::Mat &img,
                 //** Create image to publish
                 cv::drawContours(out_img,contours, max_i, cv::Scalar(255), CV_FILLED);
                 cv::resize(out_img, out_img, cv::Size(0,0), 1.0/SCALE_FACTOR, 1.0/SCALE_FACTOR); // So that we can get more detail
-                return i;
+//                return i;
             }
         }
     }
     cv::resize(out_img, out_img, cv::Size(0,0), 1.0/SCALE_FACTOR, 1.0/SCALE_FACTOR); // So that we can get more detail
     return -1;
+}
+
+void Object_Detection::DR_Callback(ColorTuningConfig &config, uint32_t level)
+{
+    ROS_INFO("[Object Detection] Dynamic reconfigure");
+    hsv_params_.R_H_min = config.R_H_min;
+    hsv_params_.R_H_max = config.R_H_max;
+    hsv_params_.R_S_min = config.R_S_min;
+    hsv_params_.R_S_max = config.R_S_max;
+    hsv_params_.R_V_min = config.R_V_min;
+    hsv_params_.R_V_max = config.R_V_max;
+    hsv_params_.R_display = config.R_Display;
+
+    hsv_params_.G_H_min = config.G_H_min;
+    hsv_params_.G_H_max = config.G_H_max;
+    hsv_params_.G_S_min = config.G_S_min;
+    hsv_params_.G_S_max = config.G_S_max;
+    hsv_params_.G_V_min = config.G_V_min;
+    hsv_params_.G_V_max = config.G_V_max;
+    hsv_params_.G_display = config.G_Display;
+
+    hsv_params_.B_H_min = config.B_H_min;
+    hsv_params_.B_H_max = config.B_H_max;
+    hsv_params_.B_S_min = config.B_S_min;
+    hsv_params_.B_S_max = config.B_S_max;
+    hsv_params_.B_V_min = config.B_V_min;
+    hsv_params_.B_V_max = config.B_V_max;
+    hsv_params_.B_display = config.B_Display;
+
+    hsv_params_.Y_H_min = config.Y_H_min;
+    hsv_params_.Y_H_max = config.Y_H_max;
+    hsv_params_.Y_S_min = config.Y_S_min;
+    hsv_params_.Y_S_max = config.Y_S_max;
+    hsv_params_.Y_V_min = config.Y_V_min;
+    hsv_params_.Y_V_max = config.Y_V_max;
+    hsv_params_.Y_display = config.Y_Display;
+
+    hsv_params_.P_H_min = config.P_H_min;
+    hsv_params_.P_H_max = config.P_H_max;
+    hsv_params_.P_S_min = config.P_S_min;
+    hsv_params_.P_S_max = config.P_S_max;
+    hsv_params_.P_V_min = config.P_V_min;
+    hsv_params_.P_V_max = config.P_V_max;
+    hsv_params_.P_display = config.P_Display;
+
+    hsv_params_.remove_floor = config.Remove_floor;
 }
 
 }  // namespace
