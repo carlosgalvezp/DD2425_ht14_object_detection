@@ -13,7 +13,17 @@ find_package(catkin REQUIRED COMPONENTS
   image_transport
   cv_bridge
   nodelet
+  dynamic_reconfigure
 )
+
+#add dynamic reconfigure api
+#find_package(catkin REQUIRED dynamic_reconfigure)
+generate_dynamic_reconfigure_options(
+  cfg/ColorTuning.cfg
+  #...
+)
+
+
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -129,8 +139,13 @@ link_libraries(${PCL_LIBRARIES})
 
 # Sources
 file (GLOB_RECURSE SOURCES src/*.cpp include/${PROJECT_NAME}/*.h)
+
+
 ## Declare a cpp executable
 add_executable(${PROJECT_NAME} ${SOURCES})
+
+# make sure configure headers are built before any node using them
+add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_gencfg)
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
@@ -142,6 +157,7 @@ target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${
 # Declare a cpp library for NODELET
 add_library(Object_Detection_Nodelet ${SOURCES})
 target_link_libraries(Object_Detection_Nodelet ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
+add_dependencies(Object_Detection_Nodelet ${PROJECT_NAME}_gencfg)
 
 
 #############

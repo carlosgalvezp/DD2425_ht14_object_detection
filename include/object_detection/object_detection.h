@@ -16,6 +16,9 @@
 #include <cv_bridge/cv_bridge.h>
 #include <message_filters/subscriber.h>
 
+#include <dynamic_reconfigure/server.h>
+#include <object_detection/ColorTuningConfig.h>
+
 // Services
 #include <ras_srv_msgs/Recognition.h>
 
@@ -65,6 +68,18 @@ namespace object_detection
 {
 class Object_Detection{
 
+    struct HSV_Params
+    {
+        int R_H_min ,R_H_max, R_S_min, R_S_max, R_V_min, R_V_max;
+        int G_H_min ,G_H_max, G_S_min, G_S_max, G_V_min, G_V_max;
+        int B_H_min ,B_H_max, B_S_min, B_S_max, B_V_min, B_V_max;
+        int Y_H_min ,Y_H_max, Y_S_min, Y_S_max, Y_V_min, Y_V_max;
+        int P_H_min ,P_H_max, P_S_min, P_S_max, P_V_min, P_V_max;
+
+        bool R_display, G_display, B_display, Y_display, P_display;
+        bool remove_floor;
+    };
+
     typedef image_transport::ImageTransport ImageTransport;
     typedef image_transport::Publisher ImagePublisher;
     typedef image_transport::SubscriberFilter ImageSubFilter;
@@ -80,6 +95,7 @@ public:
     void RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
                                          const sensor_msgs::ImageConstPtr &depth_msg);
 
+    void DR_Callback(object_detection::ColorTuningConfig &config, uint32_t level);
 private:
     ros::NodeHandle n_, n_private_;
     message_filters::Subscriber<sensor_msgs::Image> rgb_sub_;
@@ -91,6 +107,10 @@ private:
 
     ros::ServiceClient service_client_;
     ros::Publisher speaker_pub_;
+
+    dynamic_reconfigure::Server<object_detection::ColorTuningConfig> DR_server_;
+    dynamic_reconfigure::Server<object_detection::ColorTuningConfig>::CallbackType DR_f_;
+
     void buildPointCloud(const cv::Mat &rgb_img,
                          const cv::Mat &depth_img,
                          pcl::PointCloud<pcl::PointXYZRGB> &cloud);
@@ -105,5 +125,7 @@ private:
     bool started_;
     bool detected_object_;
     cv::Mat ROI_;
+
+    HSV_Params hsv_params_;
 };
 }
