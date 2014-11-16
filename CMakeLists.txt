@@ -139,10 +139,14 @@ link_libraries(${PCL_LIBRARIES})
 
 # Sources
 file (GLOB_RECURSE SOURCES src/*.cpp include/${PROJECT_NAME}/*.h)
-
+list (REMOVE_ITEM SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/object_detection_node.cpp
+                          ${CMAKE_CURRENT_SOURCE_DIR}/src/train_color_models.cpp
+                          ${CMAKE_CURRENT_SOURCE_DIR}/src/test_color_bayes.cpp)
 
 ## Declare a cpp executable
-add_executable(${PROJECT_NAME} ${SOURCES})
+add_executable(${PROJECT_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/src/object_detection_node.cpp ${SOURCES})
+add_executable(train_color_models ${CMAKE_CURRENT_SOURCE_DIR}/src/train_color_models.cpp ${SOURCES})
+add_executable(test_color_bayes ${CMAKE_CURRENT_SOURCE_DIR}/src/test_color_bayes.cpp ${SOURCES})
 
 # make sure configure headers are built before any node using them
 add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_gencfg)
@@ -153,6 +157,8 @@ add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_gencfg)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
+target_link_libraries(train_color_models ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
+target_link_libraries(test_color_bayes ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
 
 # Declare a cpp library for NODELET
 add_library(Object_Detection_Nodelet ${SOURCES})
