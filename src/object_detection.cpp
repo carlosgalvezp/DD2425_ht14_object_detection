@@ -58,50 +58,54 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         cv::imshow("RGB", rgb_img_scaled);
         cv::waitKey(1);
 
-        // ** Create point cloud
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
-        ros::WallTime t1 = ros::WallTime::now();
-
-        buildPointCloud(rgb_img_scaled, depth_img_scaled, *cloud);
-
-        ros::WallTime t2 = ros::WallTime::now();
-        double t_build_pcl = RAS_Utils::time_diff_ms(t1,t2);
-
-//        pcl::io::savePCDFile("/home/carlos/test_pcl.pcd", *cloud);
-
-        // ** Remove main plane (floor)
-        t1 = ros::WallTime::now();
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr floor_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
-
-        get_floor_plane(cloud, floor_cloud);
-
-        t2 = ros::WallTime::now();
-        double t_remove_plane = RAS_Utils::time_diff_ms(t1,t2);
-//        pcl::io::savePCDFile("/home/carlos/test_pcl.pcd", *floor_cloud);
-
-        // ** Back-project to get binary mask
-        t1 = ros::WallTime::now();
-        cv::Mat floor_mask = 255*cv::Mat::ones(rgb_img_scaled.rows, rgb_img_scaled.cols, CV_8UC1);
-
-        backproject_floor(floor_cloud, floor_mask);
-
-        t2 = ros::WallTime::now();
-        double t_backproject = RAS_Utils::time_diff_ms(t1,t2);
-        cv::bitwise_and(floor_mask,ROI_, floor_mask); //Combine with ROI
-        cv::imshow("Floor mask",floor_mask);
-        cv::waitKey(1);
-
-        // ** Apply mask to remove floor in 2D
         cv::Mat rgb_filtered; //= cv::Mat::zeros(rgb_img.rows, rgb_img.cols, CV_8UC3);
-        if(hsv_params_.remove_floor)
+        rgb_img_scaled.copyTo(rgb_filtered);
+
+        hsv_params_.remove_floor = false;
+        if (hsv_params_.remove_floor)
+        {
+            // ** Create point cloud
+            pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+            ros::WallTime t1 = ros::WallTime::now();
+
+            buildPointCloud(rgb_img_scaled, depth_img_scaled, *cloud);
+
+            ros::WallTime t2 = ros::WallTime::now();
+            double t_build_pcl = RAS_Utils::time_diff_ms(t1,t2);
+
+    //        pcl::io::savePCDFile("/home/carlos/test_pcl.pcd", *cloud);
+
+            // ** Remove main plane (floor)
+            t1 = ros::WallTime::now();
+            pcl::PointCloud<pcl::PointXYZRGB>::Ptr floor_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+
+            get_floor_plane(cloud, floor_cloud);
+
+            t2 = ros::WallTime::now();
+            double t_remove_plane = RAS_Utils::time_diff_ms(t1,t2);
+    //        pcl::io::savePCDFile("/home/carlos/test_pcl.pcd", *floor_cloud);
+
+            // ** Back-project to get binary mask
+            t1 = ros::WallTime::now();
+            cv::Mat floor_mask = 255*cv::Mat::ones(rgb_img_scaled.rows, rgb_img_scaled.cols, CV_8UC1);
+
+            backproject_floor(floor_cloud, floor_mask);
+
+            t2 = ros::WallTime::now();
+            double t_backproject = RAS_Utils::time_diff_ms(t1,t2);
+            cv::bitwise_and(floor_mask,ROI_, floor_mask); //Combine with ROI
+            cv::imshow("Floor mask",floor_mask);
+            cv::waitKey(1);
+
+            // ** Apply mask to remove floor in 2D
             rgb_img_scaled.copyTo(rgb_filtered, floor_mask);
-        else
-            rgb_img_scaled.copyTo(rgb_filtered);
+
+        }
         cv::imshow("Filtered image",rgb_filtered);
         cv::waitKey(1);
 
         // ** Color analysis (Ryan)
-        t1 = ros::WallTime::now();
+//        t1 = ros::WallTime::now();
         cv::Point2i mass_center;
         cv::Mat out_image;
         int color = color_analysis(rgb_filtered, mass_center, out_image);
@@ -158,7 +162,6 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
 //            }
         }
 
-
         // ** Print statistics
 //        ROS_INFO("[Object Detection] Build PCL: %.3f,  Plane: %.3f, Backproject: %.3f, Color: %.3f, TOTAL: %.3f ms",
 //                 t_build_pcl, t_remove_plane, t_backproject, t_color, t_total);
@@ -167,7 +170,7 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         frame_counter_++;
 
     ros::WallTime t_end = ros::WallTime::now();
-//    ROS_INFO("[Object Detection] %.3f ms", RAS_Utils::time_diff_ms(t_begin, t_end));
+    ROS_INFO("[Object Detection] %.3f ms", RAS_Utils::time_diff_ms(t_begin, t_end));
 }
 
 void Object_Detection::buildPointCloud(const cv::Mat &rgb_img,
@@ -278,15 +281,6 @@ int Object_Detection::color_analysis(const cv::Mat &img,
     int erode_times=1;
     int dilate_times=1;
 
-    int hue_low_blue =5; int hue_low_red =105; int hue_low_green =50; int hue_low_purple =140; int hue_low_yellow =85;
-    int hue_high_blue=25; int hue_high_red=130; int hue_high_green=85; int hue_high_purple=170; int hue_high_yellow=105;
-    //Hue values: Blue(15-25), Red(115-120), Green(55-65), Purple(140-170), Orange(110-120)
-    //Perhaps to use saturation and brightness to distinguish orange with red, or to increase contrast of input image
-    int sat_low=1;
-    int sat_high=255;
-    int bright_low=1;
-    int bright_high=255;
-
     out_img = cv::Mat::zeros(img.rows, img.cols, CV_8UC1);
 
     ////////////////////////////////////////////////
@@ -364,57 +358,57 @@ int Object_Detection::color_analysis(const cv::Mat &img,
                 }
             break;
         }
-        cv::imshow("win2",img_binary);
-        cv::waitKey(1);
 
-
-        ////////////////////////////////////////////////
-        //       4) dilate then erode IMAGE           //
-        ////////////////////////////////////////////////
-        cv::dilate(img_binary,img_binary,cv::Mat(),cv::Point(-1,-1),dilate_times); //dilate image1 to fill empty spaces)
-//        cv::imshow("After dilate", img_binary); //display erode image
-        cv::erode(img_binary,img_binary,cv::Mat(),cv::Point(-1,-1),erode_times); //erode image1 to remove single pixels
-//        cv::imshow("After erode", img_binary); //display erode image
+//        cv::imshow("win2",img_binary);
 //        cv::waitKey(1);
 
-        ////////////////////////////////////////
-        //       5) FIND CONTOUR              //
-        ////////////////////////////////////////
-        std::vector<std::vector<cv::Point> > contours;
-        cv::findContours(img_binary,contours,CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE);
-        if(contours.size() > 0)
-        {
-            std::vector<cv::Point> biggest_contour;
+//        ////////////////////////////////////////////////
+//        //       4) dilate then erode IMAGE           //
+//        ////////////////////////////////////////////////
+//        cv::dilate(img_binary,img_binary,cv::Mat(),cv::Point(-1,-1),dilate_times); //dilate image1 to fill empty spaces)
+////        cv::imshow("After dilate", img_binary); //display erode image
+//        cv::erode(img_binary,img_binary,cv::Mat(),cv::Point(-1,-1),erode_times); //erode image1 to remove single pixels
+////        cv::imshow("After erode", img_binary); //display erode image
+////        cv::waitKey(1);
 
-            // ** Get biggest contour
-            double max_size = -1;
-            double max_i = 0;
-            for(std::size_t s = 0; s < contours.size(); ++s)
-            {
-                double size = cv::contourArea(contours[s]);
-                if(size > max_size)
-                {
-                    max_size = size;
-                    max_i = s;
-                }
-            }
-            ///////////////////////////////////////////////////////////////////////////////////
-            //        6) Check if the object is found and break the loop accordingly         //
-            ///////////////////////////////////////////////////////////////////////////////////
+//        ////////////////////////////////////////
+//        //       5) FIND CONTOUR              //
+//        ////////////////////////////////////////
+//        std::vector<std::vector<cv::Point> > contours;
+//        cv::findContours(img_binary,contours,CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE);
+//        if(contours.size() > 0)
+//        {
+//            std::vector<cv::Point> biggest_contour;
 
-            if (max_size > pixel_threshhold)
-            {
-                // ** Get mass center
-                biggest_contour = contours[max_i];
-                cv::Moments mu = moments(biggest_contour,false);
-                mass_center.x = (mu.m10/mu.m00) / SCALE_FACTOR;
-                mass_center.y = (mu.m01/mu.m00) / SCALE_FACTOR;
-                //** Create image to publish
-                cv::drawContours(out_img,contours, max_i, cv::Scalar(255), CV_FILLED);
-                cv::resize(out_img, out_img, cv::Size(0,0), 1.0/SCALE_FACTOR, 1.0/SCALE_FACTOR); // So that we can get more detail
-//                return i;
-            }
-        }
+//            // ** Get biggest contour
+//            double max_size = -1;
+//            double max_i = 0;
+//            for(std::size_t s = 0; s < contours.size(); ++s)
+//            {
+//                double size = cv::contourArea(contours[s]);
+//                if(size > max_size)
+//                {
+//                    max_size = size;
+//                    max_i = s;
+//                }
+//            }
+//            ///////////////////////////////////////////////////////////////////////////////////
+//            //        6) Check if the object is found and break the loop accordingly         //
+//            ///////////////////////////////////////////////////////////////////////////////////
+
+//            if (max_size > pixel_threshhold)
+//            {
+//                // ** Get mass center
+//                biggest_contour = contours[max_i];
+//                cv::Moments mu = moments(biggest_contour,false);
+//                mass_center.x = (mu.m10/mu.m00) / SCALE_FACTOR;
+//                mass_center.y = (mu.m01/mu.m00) / SCALE_FACTOR;
+//                //** Create image to publish
+//                cv::drawContours(out_img,contours, max_i, cv::Scalar(255), CV_FILLED);
+//                cv::resize(out_img, out_img, cv::Size(0,0), 1.0/SCALE_FACTOR, 1.0/SCALE_FACTOR); // So that we can get more detail
+////                return i;
+//            }
+//        }
     }
     cv::resize(out_img, out_img, cv::Size(0,0), 1.0/SCALE_FACTOR, 1.0/SCALE_FACTOR); // So that we can get more detail
     return -1;
