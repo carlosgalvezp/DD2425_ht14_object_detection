@@ -12,7 +12,6 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   image_transport
   cv_bridge
-  nodelet
   dynamic_reconfigure
 )
 
@@ -125,6 +124,10 @@ include_directories(include
 #   ${catkin_LIBRARIES}
 # )
 
+# Eigen
+find_package(Eigen REQUIRED)
+include_directories(${EIGEN_INCLUDE_DIRS})
+
 # OpenCV
 FIND_PACKAGE( OpenCV REQUIRED )
 include_directories(${OpenCV_INCLUDE_DIRS})
@@ -161,9 +164,6 @@ target_link_libraries(train_color_models ${catkin_LIBRARIES} ${OpenCV_LIBRARIES}
 target_link_libraries(test_color_bayes ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
 
 # Declare a cpp library for NODELET
-add_library(Object_Detection_Nodelet ${SOURCES})
-target_link_libraries(Object_Detection_Nodelet ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
-add_dependencies(Object_Detection_Nodelet ${PROJECT_NAME}_gencfg)
 
 
 #############

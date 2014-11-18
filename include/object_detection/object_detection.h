@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <ctime>
 #include <sys/time.h>
 #include <ras_utils/ras_utils.h>
@@ -28,39 +29,34 @@
 #include <pcl_ros/point_cloud.h>
 #include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/io/pcd_io.h>
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/ModelCoefficients.h>
-#include <pcl/sample_consensus/method_types.h>
-#include <pcl/sample_consensus/model_types.h>
-#include <pcl/segmentation/sac_segmentation.h>
-#include <pcl/filters/extract_indices.h>
 #include <pcl/filters/passthrough.h>
-#include <pcl/features/pfhrgb.h>
-#include <pcl/features/normal_3d.h>
-#include <pcl/search/kdtree.h>
-
+#include <pcl/common/transforms.h>
 // OpenCV
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/highgui/highgui.hpp>
 
+// Eigen
+#include <Eigen/Core>
+#include <Eigen/LU>
+
 #define QUEUE_SIZE 2        // A too large value can cause more delay; it is preferred to drop frames
 
 // ** Camera intrinsics (from /camera/depth_registered/camera_info topic)
-#define SCALE_FACTOR    0.5
 #define FX              574.0527954101562
 #define FY              574.0527954101562
 #define FX_INV          1.0/FX
 #define FY_INV          1.0/FY
-#define CX              319.5*SCALE_FACTOR
-#define CY              239.5*SCALE_FACTOR
+#define CX              319.5
+#define CY              239.5
 #define IMG_ROWS        480
 #define IMG_COLS        640
+#define SCALE_FACTOR    0.25
 
 // ** ROI (Region of Interest)
-#define ROI_MIN_U       50              *SCALE_FACTOR
-#define ROI_MAX_U       (IMG_COLS - 80) *SCALE_FACTOR
-#define ROI_MIN_V       50              *SCALE_FACTOR
-#define ROI_MAX_V       (IMG_ROWS - 50) *SCALE_FACTOR
+#define ROI_MIN_U       50
+#define ROI_MAX_U       (IMG_COLS - 80)
+#define ROI_MIN_V       50
+#define ROI_MAX_V       (IMG_ROWS - 50)
 
 // ** Object detection
 #define MIN_MASS_CENTER_Y IMG_ROWS - 100
@@ -80,27 +76,27 @@ class Object_Detection{
         bool remove_floor;
     };
 
-    typedef image_transport::ImageTransport ImageTransport;
-    typedef image_transport::Publisher ImagePublisher;
-    typedef image_transport::SubscriberFilter ImageSubFilter;
-
     typedef message_filters::sync_policies::
         ApproximateTime<sensor_msgs::Image,
                         sensor_msgs::Image> RGBD_Sync_Policy;
     typedef message_filters::Synchronizer<RGBD_Sync_Policy> RGBD_Sync;
+
 
 public:
     Object_Detection(const ros::NodeHandle& n, const ros::NodeHandle& n_private);
     ~Object_Detection(){}
     void RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
                                          const sensor_msgs::ImageConstPtr &depth_msg);
-
     void DR_Callback(object_detection::ColorTuningConfig &config, uint32_t level);
+
 private:
     ros::NodeHandle n_, n_private_;
     message_filters::Subscriber<sensor_msgs::Image> rgb_sub_;
     message_filters::Subscriber<sensor_msgs::Image> depth_sub_;
+
+
     boost::shared_ptr<RGBD_Sync> rgbd_sync_;
+
     image_transport::ImageTransport it_;
     image_transport::Publisher image_pub_;
     image_transport::Publisher mask_pub_;
@@ -111,15 +107,6 @@ private:
     dynamic_reconfigure::Server<object_detection::ColorTuningConfig> DR_server_;
     dynamic_reconfigure::Server<object_detection::ColorTuningConfig>::CallbackType DR_f_;
 
-    void buildPointCloud(const cv::Mat &rgb_img,
-                         const cv::Mat &depth_img,
-                         pcl::PointCloud<pcl::PointXYZRGB> &cloud);
-    void get_floor_plane(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &cloud_in,
-                                  pcl::PointCloud<pcl::PointXYZRGB>::Ptr      &cloud_out);
-    void backproject_floor(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &floor_cloud,
-                            cv::Mat &floor_mask);
-
-    int color_analysis(const cv::Mat &img, cv::Point2i &mass_center, cv::Mat &out_img);
     ros::WallTime ros_time;
     int frame_counter_;
     bool started_;
@@ -127,5 +114,20 @@ private:
     cv::Mat ROI_;
 
     HSV_Params hsv_params_;
+
+    Eigen::Matrix4f t_cam_to_robot_;
+    Eigen::Matrix4f t_robot_to_cam_;
+
+    void buildPointCloud(const cv::Mat &rgb_img,
+                         const cv::Mat &depth_img,
+                         pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud);
+    void get_floor_plane(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &cloud_in,
+                                  pcl::PointCloud<pcl::PointXYZRGB>::Ptr      &cloud_out);
+    void backproject_floor(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &floor_cloud,
+                            cv::Mat &floor_mask);
+
+    int color_analysis(const cv::Mat &img, cv::Point2i &mass_center, cv::Mat &out_img);
+
+    void load_calibration(const std::string &path);
 };
 }
