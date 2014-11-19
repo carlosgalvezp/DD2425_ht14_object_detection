@@ -2,26 +2,23 @@
 
 namespace object_detection
 {
-Object_Detection::Object_Detection(const ros::NodeHandle& n,
-                                   const ros::NodeHandle& n_private)
-    : n_(n), n_private_(n_private), frame_counter_(0), started_(false), it_(n), detected_object_(false)
+Object_Detection::Object_Detection()
+    : frame_counter_(0), started_(false), detected_object_(false)
 {
     // ** Load camera extrinsic calibration
     load_calibration(RAS_Names::CALIBRATION_PATH);
 
     // ** Publishers
-    image_pub_ = it_.advertise("/object_detection/image", 1);
-    speaker_pub_ = n_.advertise<std_msgs::String>("/espeak/string", 1000);
+    evidence_pub_ = n.advertise<ras_msgs::RAS_Evidence>(TOPIC_EVIDENCE, 10);
+    speaker_pub_ = n.advertise<std_msgs::String>(TOPIC_SPEAKER, 10);
+    obstacle_pub_ = n.advertise<std_msgs::Bool>(TOPIC_OBSTACLE, 10);
 
     // ** Subscribers
-    rgb_sub_.subscribe(n_, "/camera/rgb/image_rect_color", QUEUE_SIZE);
-    depth_sub_.subscribe(n_, "/camera/depth_registered/hw_registered/image_rect_raw",QUEUE_SIZE);
+    rgb_sub_.subscribe(n, TOPIC_CAMERA_RGB, QUEUE_SIZE);
+    depth_sub_.subscribe(n, TOPIC_CAMERA_DEPTH, QUEUE_SIZE);
 
     rgbd_sync_.reset(new RGBD_Sync(RGBD_Sync_Policy(QUEUE_SIZE), rgb_sub_, depth_sub_));
     rgbd_sync_->registerCallback(boost::bind(&Object_Detection::RGBD_Callback, this, _1, _2));
-
-    // ** Services
-    service_client_ = n_.serviceClient<ras_srv_msgs::Recognition>("/object_recognition/recognition");
 
     // ** Dynamic reconfigure
     DR_f_ = boost::bind(&Object_Detection::DR_Callback, this, _1, _2);
@@ -38,7 +35,6 @@ Object_Detection::Object_Detection(const ros::NodeHandle& n,
         }
     }
     ros_time = ros::WallTime::now();
-
 }
 
 
@@ -52,41 +48,14 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         // ** Convert ROS messages to OpenCV images and scale
         cv_bridge::CvImageConstPtr rgb_ptr   = cv_bridge::toCvShare(rgb_msg);
         cv_bridge::CvImageConstPtr depth_ptr   = cv_bridge::toCvShare(depth_msg);
-
         const cv::Mat& rgb_img     = rgb_ptr->image;
         const cv::Mat& depth_img   = depth_ptr->image;
-        cv::Mat rgb_scaled, depth_scaled;
 
-        // ** Create point cloud and transform into robot coordinates
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
-        buildPointCloud(rgb_img, depth_img, cloud);
-
-        // ** Remove main plane (floor)
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr floor_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
-        get_floor_plane(cloud, floor_cloud);
-
-        // ** Back-project to get binary mask
-        cv::Mat floor_mask = 255*cv::Mat::ones(rgb_img.rows, rgb_img.cols, CV_8UC1);
-        backproject_floor(floor_cloud, floor_mask);
-
-        cv::bitwise_and(floor_mask,ROI_, floor_mask); //Combine with ROI
-        cv::imshow("Floor mask",floor_mask);
-        cv::waitKey(1);
-
-        // ** Apply mask to remove floor in 2D
-        cv::Mat rgb_filtered;
-        rgb_img.copyTo(rgb_filtered, floor_mask);
-
-        cv::imshow("Filtered image",rgb_filtered);
-        cv::waitKey(1);
-
-        // ** Color analysis (Ryan)
-        cv::Point2i mass_center;
-        cv::Mat out_image;
-        int color = color_analysis(rgb_filtered, mass_center, out_image);
-
-        cv::imshow("Color mask", out_image);
-        cv::waitKey(1);
+        // ** Detect color in the image
+        cv::Mat color_mask = cv::Mat::zeros(rgb_img.rows, rgb_img.cols, CV_8UC1);
+        pcl::PointXYZ position;
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
+        int color = image_analysis(rgb_img, depth_img, color_mask, position, cloud);
 
         // ** Call the recognition node if object found
         if (color >= 0)
@@ -94,47 +63,40 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
             if(!detected_object_)
             {
                 detected_object_ = true;
-                // ** Publish to speaker
-                std_msgs::String msg;
-                msg.data = "I see an object";
-                ROS_WARN("OBJECT DETECTED");
-//                speaker_pub_.publish(msg);
-
+                ROS_INFO("Object detected");
                 /// @todo contact brain node in order to switch the navigation mode: move towards robot
             }
+            // ** Transform point into robot frame
+            PCL_Utils::transformPoint(position, t_cam_to_robot_, position);
 
-//             ** Call recognition if close enough
-            if(mass_center.y > MIN_MASS_CENTER_Y) // If the object is close enough
+            // ** Call recognition if close enough
+            if(position.x < MIN_DIST_OBJECT)
             {
-//                /@todo contact the brain node so that it can stop the robot
-//                /
+                // ** Call navigation node to stop the robot
+                communicate(SRV_NAVIGATION_IN, RAS_Names::Navigation_Modes::NAVIGATION_STOP);
 
-//                 Convert to ROS msg
-                cv_bridge::CvImage out_msg;
-                out_msg.header = rgb_msg->header;
-                out_msg.encoding = sensor_msgs::image_encodings::MONO8;
-                out_msg.image = out_image;
+                // ** Wait a bit for the robot to stop
+                ros::Rate r(0.5); // [s]
+                r.sleep();
 
-                // Publish to Services
-                image_pub_.publish(rgb_msg); // Republish RGB image
+                // ** Recognition
+                std::string object = object_recognition_.classify(rgb_img, depth_img, color_mask);
+                std::string msg = "I see a " + object;
+                ROS_INFO("%s", msg.c_str());
 
-                // Call recognition service
-                ras_srv_msgs::Recognition srv;
-
-                srv.request.rgb_img = *rgb_msg;
-                srv.request.mask    = *out_msg.toImageMsg();
-                srv.request.color   = color;
-                if (service_client_.call(srv))
-                {
-                    detected_object_ = false;
-                }
-                else{
-                    ROS_ERROR("Failed to call recognition service");
-                }
+                // ** Publish evidence and obstacle detection
+                publish_evidence(object, rgb_img);
+                publish_obstacle();
             }
             else{
-//                / @todo publish mass_center
+                // Do something else?
             }
+        }
+        // Leverage the work to detect obstacles
+        else
+        {
+            if(detectObstacle(cloud))
+                publish_obstacle();
         }
     }
     else
@@ -144,44 +106,48 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
     ROS_INFO("[Object Detection] %.3f ms", RAS_Utils::time_diff_ms(t_begin, t_end));
 }
 
-void Object_Detection::buildPointCloud(const cv::Mat &rgb_img,
-                                       const cv::Mat &depth_img,
-                                             pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud_out)
-{    
-    int height = rgb_img.rows * SCALE_FACTOR;
-    int width  = rgb_img.cols * SCALE_FACTOR;
-    int step = 1.0 / SCALE_FACTOR;
+int Object_Detection::image_analysis(const cv::Mat &rgb_img, const cv::Mat &depth_img,
+                                      cv::Mat &color_mask, pcl::PointXYZ &position,
+                                     pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud)
+{
+    // ** Create point cloud and transform into robot coordinates
+    PCL_Utils::buildPointCloud(rgb_img, depth_img, cloud, SCALE_FACTOR);
+    pcl::transformPointCloud(*cloud, *cloud, t_cam_to_robot_);
 
-    // ** Construct point cloud
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
-    cloud->resize(height*width);
+    // ** Remove floor
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr floor_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+    get_floor_plane(cloud, floor_cloud);
 
-    int i = 0;
-    for (unsigned int v = 0; v < rgb_img.rows; v+=step)
+    // ** Back-project to get binary mask
+    cv::Mat floor_mask = 255*cv::Mat::ones(rgb_img.rows, rgb_img.cols, CV_8UC1);
+    backproject_floor(floor_cloud, floor_mask);
+
+    cv::bitwise_and(floor_mask, ROI_, floor_mask); //Combine with ROI
+    cv::imshow("Floor mask",floor_mask);
+    cv::waitKey(1);
+
+    // ** Apply mask to remove floor in 2D
+    cv::Mat rgb_filtered;
+    rgb_img.copyTo(rgb_filtered, floor_mask);
+
+    cv::imshow("Filtered image",rgb_filtered);
+    cv::waitKey(1);
+
+    // ** Color analysis (Ryan)
+    cv::Point2i mass_center;
+    int color = color_analysis(rgb_filtered, mass_center, color_mask);
+
+    // ** Combine with 3D mask
+    cv::bitwise_and(color_mask, floor_mask, color_mask);
+    cv::imshow("Color mask", color_mask);
+    cv::waitKey(1);
+
+    // ** Get 3D position of the object, if any
+    if(color >=0)
     {
-        for (unsigned int u = 0; u < rgb_img.cols; u+=step)
-        {
-            float z_m = depth_img.at<float>(v, u);
-
-            const cv::Vec3b& c = rgb_img.at<cv::Vec3b>(v, u);
-
-            pcl::PointXYZRGB& pt = cloud->points[i++];
-
-            pt.x = z_m * ((u - CX) * FX_INV);
-            pt.y = z_m * ((v - CY) * FY_INV);
-            pt.z = z_m;
-
-            pt.r = c[0];
-            pt.g = c[1];
-            pt.b = c[2];
-        }
+        PCL_Utils::transform2Dto3D(mass_center, depth_img.at<float>(mass_center.y,mass_center.x), position);
     }
-    cloud->width = width;
-    cloud->height = height;
-    cloud->is_dense = true;
-
-    // ** Transform into robot coordinate frame
-    pcl::transformPointCloud(*cloud, *cloud_out, t_cam_to_robot_);
+    return color;
 }
 
 void Object_Detection::get_floor_plane(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &cloud_in,
@@ -221,8 +187,8 @@ void Object_Detection::backproject_floor(const pcl::PointCloud<pcl::PointXYZRGB>
 }
 
 int Object_Detection::color_analysis(const cv::Mat &img,
-                                            cv::Point2i &mass_center,
-                                            cv::Mat &out_img)
+                                           cv::Point2i &mass_center,
+                                           cv::Mat &out_img)
 {
     ////////////////////////////////////////////
     //             Parameters                 //
@@ -246,167 +212,113 @@ int Object_Detection::color_analysis(const cv::Mat &img,
     /////////////////////
     //   LOOP START    //
     /////////////////////
-
+    std::vector<cv::Mat> img_binary(number_of_colors);
     for(int i = 0; i < number_of_colors; ++i)
-    {
-        //cout<< "LOOP BEGIN!"<<endl;
-        //waitKey(0); //wait infinite time for a keypress
-
-//        i = i + 1;
-        //cout << "value of i: " << i << endl;
-
-
+    {        
         ////////////////////////////////////////////////////////////////////////////////////////////////
         //       3)Convert HSV image into Binary image by providing Higher and lower HSV ranges       //
         ////////////////////////////////////////////////////////////////////////////////////////////////
-
-    cv::Mat img_binary = cv::Mat::zeros(img_hsv.rows, img_hsv.cols, CV_8UC1);
-
-        switch (i)
-        {
-            case 0: // BLUE
-                cv::inRange(img_hsv, cv::Scalar(hsv_params_.B_H_min, hsv_params_.B_S_min, hsv_params_.B_V_min),
-                                     cv::Scalar(hsv_params_.B_H_max, hsv_params_.B_S_max, hsv_params_.B_V_max),
-                            img_binary);
-                if(hsv_params_.B_display){
-                    cv::imshow("Blue mask", img_binary);
-                    cv::waitKey(1);
-                }
-                break;
-            case 1: // RED
-            cv::inRange(img_hsv, cv::Scalar(hsv_params_.R_H_min, hsv_params_.R_S_min, hsv_params_.R_V_min),
-                                 cv::Scalar(hsv_params_.R_H_max, hsv_params_.R_S_max, hsv_params_.R_V_max),
-                        img_binary);
-                if(hsv_params_.R_display){
-                    cv::imshow("Red mask", img_binary);
-                    cv::waitKey(1);
-                }
-            break;
-            case 2: // GREEN
-            cv::inRange(img_hsv, cv::Scalar(hsv_params_.G_H_min, hsv_params_.G_S_min, hsv_params_.G_V_min),
-                                 cv::Scalar(hsv_params_.G_H_max, hsv_params_.G_S_max, hsv_params_.G_V_max),
-                        img_binary);
-                if(hsv_params_.G_display){
-                    cv::imshow("Green mask", img_binary);
-                    cv::waitKey(1);
-                }
-                break;
-            case 3: // YELLOW
-            cv::inRange(img_hsv, cv::Scalar(hsv_params_.Y_H_min, hsv_params_.Y_S_min, hsv_params_.Y_V_min),
-                                 cv::Scalar(hsv_params_.Y_H_max, hsv_params_.Y_S_max, hsv_params_.Y_V_max),
-                        img_binary);
-                if(hsv_params_.Y_display){
-                    cv::imshow("Yellow mask", img_binary);
-                    cv::waitKey(1);
-                }
-                break;
-            case 4: // PURPLE
-            cv::inRange(img_hsv, cv::Scalar(hsv_params_.P_H_min, hsv_params_.P_S_min, hsv_params_.P_V_min),
-                                 cv::Scalar(hsv_params_.P_H_max, hsv_params_.P_S_max, hsv_params_.P_V_max),
-                        img_binary);
-                if(hsv_params_.P_display){
-                    cv::imshow("Purple mask", img_binary);
-                    cv::waitKey(1);
-                }
-            break;
+        cv::inRange(img_hsv, cv::Scalar(hsv_params_.H_min[i], hsv_params_.S_min[i], hsv_params_.V_min[i]),
+                    cv::Scalar(hsv_params_.H_max[i], hsv_params_.S_max[i], hsv_params_.V_max[i]),
+                    img_binary[i]);
+        if(hsv_params_.display[i]){
+            std::stringstream ss;
+            ss << "Mask "<< i;
+            cv::imshow(ss.str(), img_binary[i]);
+            cv::waitKey(1);
         }
+    }
 
-//        cv::imshow("win2",img_binary);
-//        cv::waitKey(1);
+    ////////////////////////////////////////////////
+    //       4) dilate then erode IMAGE           //
+    ////////////////////////////////////////////////
+    double max_pixel_count = 0;
+    int max_idx = 0;
+    for(std::size_t i = 0; i < img_binary.size(); ++i)
+    {
+        cv::dilate(img_binary[i],img_binary[i],cv::Mat(),cv::Point(-1,-1),dilate_times); //dilate image1 to fill empty spaces)
+        cv::erode(img_binary[i],img_binary[i],cv::Mat(),cv::Point(-1,-1),erode_times); //erode image1 to remove single pixels
+        double pixel_count = cv::countNonZero(img_binary[i]);
+        if(pixel_count > max_pixel_count)
+        {
+            max_pixel_count = pixel_count;
+            max_idx = i;
+        }
+    }
+    cv::Mat &mask = img_binary[max_idx];
 
-//        ////////////////////////////////////////////////
-//        //       4) dilate then erode IMAGE           //
-//        ////////////////////////////////////////////////
-//        cv::dilate(img_binary,img_binary,cv::Mat(),cv::Point(-1,-1),dilate_times); //dilate image1 to fill empty spaces)
-////        cv::imshow("After dilate", img_binary); //display erode image
-//        cv::erode(img_binary,img_binary,cv::Mat(),cv::Point(-1,-1),erode_times); //erode image1 to remove single pixels
-////        cv::imshow("After erode", img_binary); //display erode image
-////        cv::waitKey(1);
+    ////////////////////////////////////////
+    //       5) FIND CONTOUR              //
+    ////////////////////////////////////////
+    std::vector<std::vector<cv::Point> > contours;
+    cv::findContours(mask,contours,CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE);
+    if(contours.size() > 0)
+    {
+        std::vector<cv::Point> biggest_contour;
 
-//        ////////////////////////////////////////
-//        //       5) FIND CONTOUR              //
-//        ////////////////////////////////////////
-//        std::vector<std::vector<cv::Point> > contours;
-//        cv::findContours(img_binary,contours,CV_RETR_CCOMP, CV_CHAIN_APPROX_SIMPLE);
-//        if(contours.size() > 0)
-//        {
-//            std::vector<cv::Point> biggest_contour;
+        // ** Get biggest contour
+        double max_size = -1;
+        double max_i = 0;
+        for(std::size_t s = 0; s < contours.size(); ++s)
+        {
+            double size = cv::contourArea(contours[s]);
+            if(size > max_size)
+            {
+                max_size = size;
+                max_i = s;
+            }
+        }
+        ///////////////////////////////////////////////////////////////////////////////////
+        //        6) Check if the object is found and break the loop accordingly         //
+        ///////////////////////////////////////////////////////////////////////////////////
 
-//            // ** Get biggest contour
-//            double max_size = -1;
-//            double max_i = 0;
-//            for(std::size_t s = 0; s < contours.size(); ++s)
-//            {
-//                double size = cv::contourArea(contours[s]);
-//                if(size > max_size)
-//                {
-//                    max_size = size;
-//                    max_i = s;
-//                }
-//            }
-//            ///////////////////////////////////////////////////////////////////////////////////
-//            //        6) Check if the object is found and break the loop accordingly         //
-//            ///////////////////////////////////////////////////////////////////////////////////
-
-//            if (max_size > pixel_threshhold)
-//            {
-//                // ** Get mass center
-//                biggest_contour = contours[max_i];
-//                cv::Moments mu = moments(biggest_contour,false);
-//                mass_center.x = (mu.m10/mu.m00) / SCALE_FACTOR;
-//                mass_center.y = (mu.m01/mu.m00) / SCALE_FACTOR;
-//                //** Create image to publish
-//                cv::drawContours(out_img,contours, max_i, cv::Scalar(255), CV_FILLED);
-//                cv::resize(out_img, out_img, cv::Size(0,0), 1.0/SCALE_FACTOR, 1.0/SCALE_FACTOR); // So that we can get more detail
-////                return i;
-//            }
-//        }
+        if (max_size > MIN_PIXEL_OBJECT)
+        {
+            //** Create mask
+            biggest_contour = contours[max_i];
+            cv::drawContours(out_img,contours, max_i, cv::Scalar(255), CV_FILLED);
+            return max_idx;
+        }
     }
     return -1;
 }
 
+bool Object_Detection::detectObstacle(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &cloud_in)
+{
+    // ** Pass-through
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PassThrough<pcl::PointXYZRGB> pass;
+    pass.setInputCloud (cloud_in);
+    pass.setFilterFieldName ("z");
+    pass.setFilterLimits (0.03, 0.3);
+    pass.filter (*cloud_filtered);
+
+    pass.setInputCloud (cloud_filtered);
+    pass.setFilterFieldName ("x");
+    pass.setFilterLimits (0.0, MIN_DIST_OBSTACLE);
+    pass.filter (*cloud_filtered);
+
+    pass.setInputCloud (cloud_filtered);
+    pass.setFilterFieldName ("y");
+    pass.setFilterLimits (-ROBOT_BORDER, ROBOT_BORDER);
+    pass.filter (*cloud_filtered);
+
+    // ** If any point remaining, then we have an obstacle
+    return cloud_filtered ->points.size() > 0;
+}
+
+
 void Object_Detection::DR_Callback(ColorTuningConfig &config, uint32_t level)
 {
     ROS_INFO("[Object Detection] Dynamic reconfigure");
-    hsv_params_.R_H_min = config.R_H_min;
-    hsv_params_.R_H_max = config.R_H_max;
-    hsv_params_.R_S_min = config.R_S_min;
-    hsv_params_.R_S_max = config.R_S_max;
-    hsv_params_.R_V_min = config.R_V_min;
-    hsv_params_.R_V_max = config.R_V_max;
-    hsv_params_.R_display = config.R_Display;
+    hsv_params_.H_min = {config.R_H_min, config.G_H_min,config.B_H_min,config.Y_H_min,config.P_H_min};
+    hsv_params_.H_max = {config.R_H_max, config.G_H_max,config.B_H_max,config.Y_H_max,config.P_H_max};
+    hsv_params_.S_min = {config.R_S_min, config.G_S_min,config.B_S_min,config.Y_S_min,config.P_S_min};
+    hsv_params_.S_max = {config.R_S_max, config.G_S_max,config.B_S_max,config.Y_S_max,config.P_S_max};
+    hsv_params_.V_min = {config.R_V_min, config.G_V_min,config.B_V_min,config.Y_V_min,config.P_V_min};
+    hsv_params_.V_max = {config.R_V_max, config.G_V_max,config.B_V_max,config.Y_V_max,config.P_V_max};
 
-    hsv_params_.G_H_min = config.G_H_min;
-    hsv_params_.G_H_max = config.G_H_max;
-    hsv_params_.G_S_min = config.G_S_min;
-    hsv_params_.G_S_max = config.G_S_max;
-    hsv_params_.G_V_min = config.G_V_min;
-    hsv_params_.G_V_max = config.G_V_max;
-    hsv_params_.G_display = config.G_Display;
-
-    hsv_params_.B_H_min = config.B_H_min;
-    hsv_params_.B_H_max = config.B_H_max;
-    hsv_params_.B_S_min = config.B_S_min;
-    hsv_params_.B_S_max = config.B_S_max;
-    hsv_params_.B_V_min = config.B_V_min;
-    hsv_params_.B_V_max = config.B_V_max;
-    hsv_params_.B_display = config.B_Display;
-
-    hsv_params_.Y_H_min = config.Y_H_min;
-    hsv_params_.Y_H_max = config.Y_H_max;
-    hsv_params_.Y_S_min = config.Y_S_min;
-    hsv_params_.Y_S_max = config.Y_S_max;
-    hsv_params_.Y_V_min = config.Y_V_min;
-    hsv_params_.Y_V_max = config.Y_V_max;
-    hsv_params_.Y_display = config.Y_Display;
-
-    hsv_params_.P_H_min = config.P_H_min;
-    hsv_params_.P_H_max = config.P_H_max;
-    hsv_params_.P_S_min = config.P_S_min;
-    hsv_params_.P_S_max = config.P_S_max;
-    hsv_params_.P_V_min = config.P_V_min;
-    hsv_params_.P_V_max = config.P_V_max;
-    hsv_params_.P_display = config.P_Display;
+    hsv_params_.display = {config.R_Display, config.G_Display, config.B_Display, config.Y_Display, config.P_Display};
 
     hsv_params_.remove_floor = config.Remove_floor;
 }
@@ -426,6 +338,35 @@ void Object_Detection::load_calibration(const std::string &path)
     t_robot_to_cam_ = t_cam_to_robot_.inverse();
     std::cout << "Read calibration: "<<std::endl << t_cam_to_robot_<<std::endl;
     file.close();
+}
+
+void Object_Detection::publish_evidence(const std::string &object_id, const cv::Mat &image)
+{
+    ros::Time stamp = ros::Time::now();
+    // ** Convert cv::Mat to sensor_msgs/Image
+    cv_bridge::CvImage rgb_img;
+    rgb_img.header.stamp = stamp;
+    rgb_img.encoding = sensor_msgs::image_encodings::BGR8;
+    rgb_img.image = image;
+
+    // ** Create messages
+    ras_msgs::RAS_Evidence msg;
+    msg.stamp = stamp;
+    msg.group_number = GROUP_NUMBER;
+    msg.image_evidence = *rgb_img.toImageMsg();
+
+    std_msgs::String speaker_msg;
+    speaker_msg.data = "I see " + object_id;
+
+    evidence_pub_.publish(msg);
+    speaker_pub_.publish(speaker_msg);
+}
+
+void Object_Detection::publish_obstacle()
+{
+    std_msgs::Bool msg;
+    msg.data = true;
+    obstacle_pub_.publish(msg);
 }
 
 }  // namespace

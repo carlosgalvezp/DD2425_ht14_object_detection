@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-#set(CMAKE_CXX_FLAGS "-std=c++0x ${CMAKE_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "-std=c++0x ${CMAKE_CXX_FLAGS}")
 project(object_detection)
 
 ## Find catkin macros and libraries
@@ -7,6 +7,7 @@ project(object_detection)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   ras_utils
+  object_recognition
   roscpp
   rospy
   std_msgs
@@ -141,15 +142,10 @@ link_directories(${PCL_LIBRARY_DIRS})
 link_libraries(${PCL_LIBRARIES})
 
 # Sources
-file (GLOB_RECURSE SOURCES src/*.cpp include/${PROJECT_NAME}/*.h)
-list (REMOVE_ITEM SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/object_detection_node.cpp
-                          ${CMAKE_CURRENT_SOURCE_DIR}/src/train_color_models.cpp
-                          ${CMAKE_CURRENT_SOURCE_DIR}/src/test_color_bayes.cpp)
+file (GLOB_RECURSE HEADERS include/${PROJECT_NAME}/*.h)
 
 ## Declare a cpp executable
-add_executable(${PROJECT_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/src/object_detection_node.cpp ${SOURCES})
-add_executable(train_color_models ${CMAKE_CURRENT_SOURCE_DIR}/src/train_color_models.cpp ${SOURCES})
-add_executable(test_color_bayes ${CMAKE_CURRENT_SOURCE_DIR}/src/test_color_bayes.cpp ${SOURCES})
+add_executable(${PROJECT_NAME} src/object_detection_node.cpp src/object_detection.cpp ${HEADERS})
 
 # make sure configure headers are built before any node using them
 add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_gencfg)
@@ -160,11 +156,6 @@ add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_gencfg)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
-target_link_libraries(train_color_models ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
-target_link_libraries(test_color_bayes ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
-
-# Declare a cpp library for NODELET
-
 
 #############
 ## Install ##
