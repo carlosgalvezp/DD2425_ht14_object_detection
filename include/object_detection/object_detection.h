@@ -15,6 +15,7 @@
 #include <std_msgs/Bool.h>
 #include <sensor_msgs/image_encodings.h>
 #include <sensor_msgs/PointCloud2.h>
+#include "sensor_msgs/Imu.h"
 
 #include <image_transport/image_transport.h>
 #include <image_transport/subscriber_filter.h>
@@ -58,7 +59,7 @@
 // ** Object detection
 //The cam is at 11.5cm from the border of the robot. Thus, the robot will be at 9.5 cm from the obstacle
 #define ROBOT_BORDER            0.115                     // [m]
-#define MIN_DIST_OBJECT         ROBOT_BORDER + 0.095      // [m]
+#define MIN_DIST_OBJECT         ROBOT_BORDER + 0.115      // [m]
 #define MIN_DIST_OBSTACLE       ROBOT_BORDER + 0.08       // [m]
 #define MIN_PIXEL_OBJECT        200                       // [pixel]
 namespace object_detection
@@ -91,6 +92,8 @@ public:
                                          const sensor_msgs::ImageConstPtr &depth_msg);
     void DR_Callback(object_detection::ColorTuningConfig &config, uint32_t level);
 
+    void IMUCallback(const sensor_msgs::ImuConstPtr &imu_msg);
+
 private:
     message_filters::Subscriber<sensor_msgs::Image> rgb_sub_;
     message_filters::Subscriber<sensor_msgs::Image> depth_sub_;
@@ -100,6 +103,7 @@ private:
     ros::ServiceClient service_client_;
 
     ros::Publisher speaker_pub_, evidence_pub_, obstacle_pub_;
+    ros::Subscriber imu_sub_;
 
     dynamic_reconfigure::Server<object_detection::ColorTuningConfig> DR_server_;
     dynamic_reconfigure::Server<object_detection::ColorTuningConfig>::CallbackType DR_f_;
@@ -113,13 +117,16 @@ private:
     HSV_Params hsv_params_;
 
     Eigen::Matrix4f t_cam_to_robot_;
+    Eigen::Matrix4f t_cam_to_robot0_;
     Eigen::Matrix4f t_robot_to_cam_;
 
     Object_Recognition object_recognition_;
 
+    double imu_x0_, imu_y0_, imu_z0_;
+    bool imu_calibrated_;
+
     int image_analysis(const cv::Mat &rgb_img, const cv::Mat &depth_img,
-                                          cv::Mat &color_mask, pcl::PointXYZ &position,
-                                         pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud);
+                                          cv::Mat &color_mask, pcl::PointXYZ &position,pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud);
 
     void get_floor_plane(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &cloud_in,
                                   pcl::PointCloud<pcl::PointXYZRGB>::Ptr      &cloud_out);
@@ -135,5 +142,7 @@ private:
     void publish_obstacle();
 
     bool detectObstacle(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &cloud);
+
+    double estimateDepth(const cv::Mat &depth_img, int y_coordinate);
 };
 }
