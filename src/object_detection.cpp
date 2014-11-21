@@ -3,7 +3,7 @@
 namespace object_detection
 {
 Object_Detection::Object_Detection()
-    : frame_counter_(0), started_(false), detected_object_(false)
+    : frame_counter_(0), started_(false), detected_object_(false), imu_calibrated_(false)
 {
     // ** Load camera extrinsic calibration
     load_calibration(RAS_Names::CALIBRATION_PATH);
@@ -14,6 +14,8 @@ Object_Detection::Object_Detection()
     obstacle_pub_ = n.advertise<std_msgs::Bool>(TOPIC_OBSTACLE, 10);
 
     // ** Subscribers
+    imu_sub_ = n.subscribe(TOPIC_IMU, QUEUE_SIZE,  &Object_Detection::IMUCallback, this);
+
     rgb_sub_.subscribe(n, TOPIC_CAMERA_RGB, QUEUE_SIZE);
     depth_sub_.subscribe(n, TOPIC_CAMERA_DEPTH, QUEUE_SIZE);
 
@@ -51,10 +53,11 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         const cv::Mat& rgb_img     = rgb_ptr->image;
         const cv::Mat& depth_img   = depth_ptr->image;
 
+        cv::imshow("BGR", rgb_img);
         // ** Detect color in the image
         cv::Mat color_mask = cv::Mat::zeros(rgb_img.rows, rgb_img.cols, CV_8UC1);
         pcl::PointXYZ position;
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
+        pcl::PointCloud<pcl::PointXYZRGB>:: Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
         int color = image_analysis(rgb_img, depth_img, color_mask, position, cloud);
 
         // ** Call the recognition node if object found
@@ -68,29 +71,29 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
             }
             // ** Transform point into robot frame
             PCL_Utils::transformPoint(position, t_cam_to_robot_, position);
-
+            std::cout << "Position: "<<position.x<<std::endl;
             // ** Call recognition if close enough
-            if(position.x < MIN_DIST_OBJECT)
-            {
+//            if(position.x < MIN_DIST_OBJECT)
+//            {
                 // ** Call navigation node to stop the robot
-                communicate(SRV_NAVIGATION_IN, RAS_Names::Navigation_Modes::NAVIGATION_STOP);
+//                communicate(SRV_NAVIGATION_IN, RAS_Names::Navigation_Modes::NAVIGATION_STOP);
 
                 // ** Wait a bit for the robot to stop
-                ros::Rate r(0.5); // [s]
-                r.sleep();
+//                ros::Rate r(0.5); // [s]
+//                r.sleep();
 
                 // ** Recognition
-                std::string object = object_recognition_.classify(rgb_img, depth_img, color_mask);
+                std::string object = object_recognition_.classify(rgb_img, depth_img, cloud,color_mask, t_cam_to_robot_, position);
                 std::string msg = "I see a " + object;
                 ROS_INFO("%s", msg.c_str());
 
                 // ** Publish evidence and obstacle detection
                 publish_evidence(object, rgb_img);
                 publish_obstacle();
-            }
-            else{
+//            }
+//            else{
                 // Do something else?
-            }
+//            }
         }
         // Leverage the work to detect obstacles
         else
@@ -107,12 +110,12 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
 }
 
 int Object_Detection::image_analysis(const cv::Mat &rgb_img, const cv::Mat &depth_img,
-                                      cv::Mat &color_mask, pcl::PointXYZ &position,
-                                     pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud)
+                                      cv::Mat &color_mask, pcl::PointXYZ &position, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud)
 {
     // ** Create point cloud and transform into robot coordinates
     PCL_Utils::buildPointCloud(rgb_img, depth_img, cloud, SCALE_FACTOR);
     pcl::transformPointCloud(*cloud, *cloud, t_cam_to_robot_);
+//    PCL_Utils::visualizePointCloud(cloud);
 
     // ** Remove floor
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr floor_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
@@ -145,7 +148,12 @@ int Object_Detection::image_analysis(const cv::Mat &rgb_img, const cv::Mat &dept
     // ** Get 3D position of the object, if any
     if(color >=0)
     {
-        PCL_Utils::transform2Dto3D(mass_center, depth_img.at<float>(mass_center.y,mass_center.x), position);
+        double depth = depth_img.at<float>(mass_center.y,mass_center.x);
+        if(depth == 0 || isnan(depth))
+        {
+            depth = estimateDepth(depth_img, mass_center.y);
+        }
+        PCL_Utils::transform2Dto3D(mass_center, depth, position);
     }
     return color;
 }
@@ -157,7 +165,7 @@ void Object_Detection::get_floor_plane(const pcl::PointCloud<pcl::PointXYZRGB>::
     pcl::PassThrough<pcl::PointXYZRGB> pass;
     pass.setInputCloud (cloud_in);
     pass.setFilterFieldName ("z");
-    pass.setFilterLimits (-1.0, 0.015);
+    pass.setFilterLimits (-1.0, 0.01);
     pass.filter (*cloud_out);
 }
 
@@ -180,7 +188,7 @@ void Object_Detection::backproject_floor(const pcl::PointCloud<pcl::PointXYZRGB>
     }
 
     // ** Opening (dilate + erosion)
-    int size = 2; // This depends on scaling factor
+    int size = 4; // This depends on scaling factor
     cv::Mat element = getStructuringElement(cv::MORPH_RECT,cv::Size(2*size+1, 2*size+1),cv::Point( size, size) );
     cv::erode(floor_mask, floor_mask, element);
     cv::dilate(floor_mask, floor_mask, element);
@@ -195,7 +203,6 @@ int Object_Detection::color_analysis(const cv::Mat &img,
     ////////////////////////////////////////////
 
     int number_of_colors = 5; //blue,red,green,purple,yellow
-    int pixel_threshhold=200;
     int erode_times=1;
     int dilate_times=1;
 
@@ -277,6 +284,11 @@ int Object_Detection::color_analysis(const cv::Mat &img,
             //** Create mask
             biggest_contour = contours[max_i];
             cv::drawContours(out_img,contours, max_i, cv::Scalar(255), CV_FILLED);
+
+            // ** Get mass center
+            cv::Moments m = cv::moments(biggest_contour);
+            mass_center.x = m.m10/m.m00;
+            mass_center.y = m.m01/m.m00;
             return max_idx;
         }
     }
@@ -327,14 +339,15 @@ void Object_Detection::load_calibration(const std::string &path)
 {
     std::ifstream file;
     file.open(path.c_str());
-    t_cam_to_robot_ = Eigen::Matrix4f::Identity();
+    t_cam_to_robot0_ = Eigen::Matrix4f::Identity();
     for(unsigned int i = 0; i < 4; ++i)
     {
         for(unsigned int j = 0; j < 4; ++j)
         {
-            file >> t_cam_to_robot_(i,j);
+            file >> t_cam_to_robot0_(i,j);
         }
     }
+    t_cam_to_robot_ = t_cam_to_robot0_;
     t_robot_to_cam_ = t_cam_to_robot_.inverse();
     std::cout << "Read calibration: "<<std::endl << t_cam_to_robot_<<std::endl;
     file.close();
@@ -367,6 +380,50 @@ void Object_Detection::publish_obstacle()
     std_msgs::Bool msg;
     msg.data = true;
     obstacle_pub_.publish(msg);
+}
+
+void Object_Detection::IMUCallback(const sensor_msgs::ImuConstPtr &imu_msg)
+{
+    double x,y,z;
+    x = imu_msg->linear_acceleration.x;
+    y = imu_msg->linear_acceleration.y;
+    z = imu_msg->linear_acceleration.z;
+
+    // ** Calibrate if required
+    if (!imu_calibrated_)
+    {
+        imu_x0_ = x;
+        imu_y0_ = y;
+        imu_z0_ = z;
+        imu_calibrated_ = true;
+    }
+    // ** Compute angle (rotation around y axis)
+//    double theta_y = asin(fabs((x-imu_x0_)/imu_z0_));
+    double theta_y = atan(fabs((x-imu_x0_)/z));
+    Eigen::Matrix4f t_tilt_;
+    t_tilt_ << cos(theta_y),     0,      sin(theta_y), 0,
+            0,                1,      0,               0,
+            -sin(theta_y),    0,      cos(theta_y),    0,
+            0,                0,                0,     1;
+
+    t_cam_to_robot_ = t_tilt_ * t_cam_to_robot0_;
+    t_robot_to_cam_ = t_cam_to_robot_.inverse();
+}
+
+double Object_Detection::estimateDepth(const cv::Mat &depth_img, int y_coordinate)
+{
+    double depth=0;
+    int count=0;
+    for(unsigned int i = 0; i < IMG_COLS; ++i)
+    {
+        double d = depth_img.at<float>(y_coordinate,i);
+        if( d!= 0 && !isnan(d))
+        {
+            depth += d;
+            ++count;
+        }
+    }
+    return depth/count;
 }
 
 }  // namespace
