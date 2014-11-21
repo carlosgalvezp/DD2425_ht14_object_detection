@@ -52,7 +52,8 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         cv_bridge::CvImageConstPtr depth_ptr   = cv_bridge::toCvShare(depth_msg);
         const cv::Mat& rgb_img     = rgb_ptr->image;
         const cv::Mat& depth_img   = depth_ptr->image;
-
+        cv::Mat hsv_img;
+        cv::cvtColor(rgb_img, hsv_img, CV_BGR2HSV);
         cv::imshow("BGR", rgb_img);
         // ** Detect color in the image
         cv::Mat color_mask = cv::Mat::zeros(rgb_img.rows, rgb_img.cols, CV_8UC1);
@@ -83,7 +84,7 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
 //                r.sleep();
 
                 // ** Recognition
-                std::string object = object_recognition_.classify(rgb_img, depth_img, cloud,color_mask, t_cam_to_robot_, position);
+                std::string object = object_recognition_.classify(hsv_img, depth_img, color_mask);
                 std::string msg = "I see a " + object;
                 ROS_INFO("%s", msg.c_str());
 
