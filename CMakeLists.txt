@@ -14,6 +14,7 @@ find_package(catkin REQUIRED COMPONENTS
   image_transport
   cv_bridge
   dynamic_reconfigure
+  tf
 )
 
 #add dynamic reconfigure api
@@ -146,6 +147,7 @@ file (GLOB_RECURSE HEADERS include/${PROJECT_NAME}/*.h)
 
 ## Declare a cpp executable
 add_executable(${PROJECT_NAME} src/object_detection_node.cpp src/object_detection.cpp ${HEADERS})
+add_executable(test_marker_placement src/apps/test_marker_placement.cpp ${HEADERS})
 
 # make sure configure headers are built before any node using them
 add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_gencfg)
@@ -156,6 +158,7 @@ add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_gencfg)
 
 ## Specify libraries to link a library or executable target against
 target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
+target_link_libraries(test_marker_placement ${catkin_LIBRARIES})
 
 #############
 ## Install ##
