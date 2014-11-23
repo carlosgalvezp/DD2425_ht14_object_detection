@@ -3,7 +3,7 @@
 namespace object_detection
 {
 Object_Detection::Object_Detection()
-    : frame_counter_(0), started_(false), imu_calibrated_(false), n_concave_(0)
+    : frame_counter_(0), started_(false), imu_calibrated_(false), n_concave_(0), n_obstacle_(0)
 {
     // ** Load camera extrinsic calibration
     load_calibration(RAS_Names::CALIBRATION_PATH);
@@ -53,13 +53,15 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         const cv::Mat& depth_img   = depth_ptr->image;
         cv::Mat hsv_img;
         cv::cvtColor(rgb_img, hsv_img, CV_BGR2HSV);
-
+        cv::imshow("RGB", rgb_img);
+        cv::waitKey(1);
         // ** Detect color in the image
         cv::Mat color_mask = cv::Mat::zeros(rgb_img.rows, rgb_img.cols, CV_8UC1);
         pcl::PointXYZ position_robot_frame;
         pcl::PointCloud<pcl::PointXYZRGB>:: Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
-        int color = image_analysis(rgb_img, depth_img, color_mask, position_robot_frame, cloud);
-
+        cv::Mat floor_mask;
+        int color = image_analysis(rgb_img, depth_img, color_mask, position_robot_frame, cloud, floor_mask);
+        cv::imshow("Floor mask", floor_mask);
         std::cout << "Position: "<<position_robot_frame.x<<std::endl;
 
         // ** Call the recognition node if object found
@@ -71,6 +73,7 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
             // ** Close enough -> recognize
             if(position_robot_frame.x < D_OBJECT_RECOGNITION)
             {
+                std::cout << "RECOGNITION"<<std::endl;
                 // ** Transform into world frame and see if we have seen this before
                 pcl::PointXY position_robot_coord_2d, position_world_frame;
                 position_robot_coord_2d.x = position_robot_frame.x;
@@ -89,7 +92,6 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
                     // ** Publish evidence, object (to the map) and obstacle detection
                     publish_evidence(object, rgb_img);
                     publish_object(object, position_world_frame);
-                    publish_obstacle();
                 }
             }
             else{
@@ -100,8 +102,19 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         else
         {
             n_concave_ = 0;
-            if(detectObstacle(cloud))
-                publish_obstacle();
+            bool obstacle(false);
+            if(detectObstacle(floor_mask))
+            {
+                ROS_ERROR("OBJECT DETECTED");
+                n_obstacle_++;
+                if(n_obstacle_ > 10)
+                    obstacle = true;
+            }
+            else
+            {
+                n_obstacle_ = 0;
+            }
+            publish_obstacle(obstacle);
         }
     }
     else
@@ -112,7 +125,8 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
 }
 
 int Object_Detection::image_analysis(const cv::Mat &rgb_img, const cv::Mat &depth_img,
-                                      cv::Mat &color_mask, pcl::PointXYZ &position, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud)
+                                      cv::Mat &color_mask, pcl::PointXYZ &position, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud,
+                                      cv::Mat &floor_mask)
 {
     // ** Create point cloud and transform into robot coordinates
     PCL_Utils::buildPointCloud(rgb_img, depth_img, cloud, SCALE_FACTOR);
@@ -123,14 +137,15 @@ int Object_Detection::image_analysis(const cv::Mat &rgb_img, const cv::Mat &dept
     get_floor_plane(cloud, floor_cloud);
 
     // ** Back-project to get binary mask
-    cv::Mat floor_mask = 255*cv::Mat::ones(rgb_img.rows, rgb_img.cols, CV_8UC1);
+    floor_mask = 255*cv::Mat::ones(rgb_img.rows, rgb_img.cols, CV_8UC1);
     backproject_floor(floor_cloud, floor_mask);
     cv::bitwise_and(floor_mask, ROI_, floor_mask); //Combine with ROI
 
     // ** Apply mask to remove floor in 2D
     cv::Mat rgb_filtered;
     rgb_img.copyTo(rgb_filtered, floor_mask);
-
+    cv::imshow("Image no floor", rgb_filtered);
+    cv::waitKey(1);
     // ** Color analysis (Ryan)
     cv::Point2i mass_center;
     int color = color_analysis(rgb_filtered, mass_center, color_mask);
@@ -155,7 +170,7 @@ void Object_Detection::get_floor_plane(const pcl::PointCloud<pcl::PointXYZRGB>::
     pcl::PassThrough<pcl::PointXYZRGB> pass;
     pass.setInputCloud (cloud_in);
     pass.setFilterFieldName ("z");
-    pass.setFilterLimits (-1.0, 0.01);
+    pass.setFilterLimits (-1.0, 0.015);
     pass.filter (*cloud_out);
 }
 
@@ -178,10 +193,12 @@ void Object_Detection::backproject_floor(const pcl::PointCloud<pcl::PointXYZRGB>
     }
 
     // ** Opening (dilate + erosion)
-    int size = 4; // This depends on scaling factor
-    cv::Mat element = getStructuringElement(cv::MORPH_RECT,cv::Size(2*size+1, 2*size+1),cv::Point( size, size) );
-    cv::erode(floor_mask, floor_mask, element);
-    cv::dilate(floor_mask, floor_mask, element);
+    int sizeD = 4; // This depends on scaling factor
+    int sizeE = 7; // This depends on scaling factor
+    cv::Mat elementD = getStructuringElement(cv::MORPH_RECT,cv::Size(2*sizeD+1, 2*sizeD+1),cv::Point( sizeD, sizeD) );
+    cv::Mat elementE = getStructuringElement(cv::MORPH_RECT,cv::Size(2*sizeE+1, 2*sizeE+1),cv::Point( sizeE, sizeE) );
+    cv::erode(floor_mask, floor_mask, elementE);
+    cv::dilate(floor_mask, floor_mask, elementD);
 }
 
 int Object_Detection::color_analysis(const cv::Mat &img,
@@ -273,28 +290,23 @@ int Object_Detection::color_analysis(const cv::Mat &img,
     return -1;
 }
 
-bool Object_Detection::detectObstacle(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &cloud_in)
+bool Object_Detection::detectObstacle(const cv::Mat &floor_mask)
 {
-    // ** Pass-through
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_filtered (new pcl::PointCloud<pcl::PointXYZRGB>);
-    pcl::PassThrough<pcl::PointXYZRGB> pass;
-    pass.setInputCloud (cloud_in);
-    pass.setFilterFieldName ("z");
-    pass.setFilterLimits (0.03, 0.3);
-    pass.filter (*cloud_filtered);
-
-    pass.setInputCloud (cloud_filtered);
-    pass.setFilterFieldName ("x");
-    pass.setFilterLimits (0.0, MIN_DIST_OBSTACLE);
-    pass.filter (*cloud_filtered);
-
-    pass.setInputCloud (cloud_filtered);
-    pass.setFilterFieldName ("y");
-    pass.setFilterLimits (-ROBOT_BORDER, ROBOT_BORDER);
-    pass.filter (*cloud_filtered);
-
-    // ** If any point remaining, then we have an obstacle
-    return cloud_filtered ->points.size() > 0;
+    for(unsigned int j=ROI_MIN_U; j < ROI_MAX_U; j+= 10)
+    {
+        bool lineGood = true;
+        for(unsigned int i=ROI_MIN_V; i < ROI_MAX_V; i+=5)
+        {
+            if(floor_mask.at<uint8_t>(i,j) == 0) // there is visible floor
+            {
+                lineGood = false;
+                break; //Move to next column
+            }
+        }
+        if(lineGood)
+            return true;
+    }
+    return false;
 }
 
 bool Object_Detection::is_concave(const cv::Mat &depth_img, const cv::Mat &mask_img)
@@ -382,10 +394,10 @@ void Object_Detection::publish_evidence(const std::string &object_id, const cv::
     speaker_pub_.publish(speaker_msg);
 }
 
-void Object_Detection::publish_obstacle()
+void Object_Detection::publish_obstacle(bool is_obstacle)
 {
     std_msgs::Bool msg;
-    msg.data = true;
+    msg.data = is_obstacle;
     obstacle_pub_.publish(msg);
 }
 
@@ -453,9 +465,9 @@ bool Object_Detection::is_new_object(const pcl::PointXY &position)
     for(std::size_t i = 0; i < objects_position_.size(); ++i)
     {
         if(PCL_Utils::euclideanDistance(position, objects_position_[i]) > NEW_OBJECT_MIN_DISTANCE)
-            return true;
+            return false;
     }
-    return false;
+    return true;
 }
 
 }  // namespace

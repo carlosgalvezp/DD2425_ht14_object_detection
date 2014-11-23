@@ -53,7 +53,7 @@
 
 // ** ROI (Region of Interest)
 #define ROI_MIN_U       50
-#define ROI_MAX_U       (IMG_COLS - 80)
+#define ROI_MAX_U       (IMG_COLS)- 80
 #define ROI_MIN_V       50
 #define ROI_MAX_V       (IMG_ROWS - 50)
 
@@ -137,10 +137,11 @@ private:
 
     Eigen::Matrix3f robot_pose_;
 
-    int n_concave_;
+    int n_concave_, n_obstacle_;
 
     int image_analysis(const cv::Mat &rgb_img, const cv::Mat &depth_img,
-                                          cv::Mat &color_mask, pcl::PointXYZ &position,pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud);
+                                          cv::Mat &color_mask, pcl::PointXYZ &position, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud,
+                                          cv::Mat &floor_mask);
 
     void get_floor_plane(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &cloud_in,
                                   pcl::PointCloud<pcl::PointXYZRGB>::Ptr      &cloud_out);
@@ -153,9 +154,9 @@ private:
 
     void publish_evidence(const std::string &object_id,
                           const cv::Mat &image);
-    void publish_obstacle();
+    void publish_obstacle(bool is_obstacle);
     void publish_object(const std::string &id, const pcl::PointXY position);
-    bool detectObstacle(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &cloud);
+    bool detectObstacle(const cv::Mat &floor_mask);
 
     double estimateDepth(const cv::Mat &depth_img, cv::Point mass_center);
 
