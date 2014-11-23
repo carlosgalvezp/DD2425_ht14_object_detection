@@ -16,6 +16,7 @@
 #include <sensor_msgs/image_encodings.h>
 #include <sensor_msgs/PointCloud2.h>
 #include "sensor_msgs/Imu.h"
+#include <geometry_msgs/Pose2D.h>
 
 #include <image_transport/image_transport.h>
 #include <image_transport/subscriber_filter.h>
@@ -57,11 +58,18 @@
 #define ROI_MAX_V       (IMG_ROWS - 50)
 
 // ** Object detection
-//The cam is at 11.5cm from the border of the robot. Thus, the robot will be at 9.5 cm from the obstacle
-#define ROBOT_BORDER            0.115                     // [m]
-#define MIN_DIST_OBJECT         ROBOT_BORDER + 0.115      // [m]
-#define MIN_DIST_OBSTACLE       ROBOT_BORDER + 0.08       // [m]
-#define MIN_PIXEL_OBJECT        200                       // [pixel]
+// Image parameters
+#define MIN_PIXEL_OBJECT        200                       // [pixel] Min number of pixels to classify blob as object
+#define MAX_ASPECT_RATIO        2.0                       // Aspect ratio  = max(h/w, w/h), w,h are the dimensions of the blob's bounding box
+
+// Geometric parameters
+#define ROBOT_BORDER            0.115                     // [m] Distance from camera to robot front border
+#define D_OBJECT_DETECTION      ROBOT_BORDER + 0.25       // [m] Distance at which we start trying to detect the object
+#define D_OBJECT_RECOGNITION    ROBOT_BORDER + 0.15       // [m] Distance at which we recognize the object (and speak)
+#define D_OBEJCT_STOP           ROBOT_BORDER + 0.09       // [m] Distance at which we stop in front of the object
+#define MIN_DIST_OBSTACLE       ROBOT_BORDER + 0.08       // [m] Distance at which we stop in front of an obstacle (wall)
+#define NEW_OBJECT_MIN_DISTANCE 0.2                       // [m] Min distance between objects
+
 namespace object_detection
 {
 class Object_Detection : rob::BasicNode{
@@ -93,6 +101,7 @@ public:
     void DR_Callback(object_detection::ColorTuningConfig &config, uint32_t level);
 
     void IMUCallback(const sensor_msgs::ImuConstPtr &imu_msg);
+    void OdometryCallback(const geometry_msgs::Pose2DConstPtr &odometry_msg);
 
 private:
     message_filters::Subscriber<sensor_msgs::Image> rgb_sub_;
@@ -103,7 +112,7 @@ private:
     ros::ServiceClient service_client_;
 
     ros::Publisher speaker_pub_, evidence_pub_, obstacle_pub_;
-    ros::Subscriber imu_sub_;
+    ros::Subscriber imu_sub_, odometry_sub_;
 
     dynamic_reconfigure::Server<object_detection::ColorTuningConfig> DR_server_;
     dynamic_reconfigure::Server<object_detection::ColorTuningConfig>::CallbackType DR_f_;
@@ -111,7 +120,6 @@ private:
     ros::WallTime ros_time;
     int frame_counter_;
     bool started_;
-    bool detected_object_;
     cv::Mat ROI_;
 
     HSV_Params hsv_params_;
@@ -122,8 +130,14 @@ private:
 
     Object_Recognition object_recognition_;
 
+    std::vector<pcl::PointXY> objects_position_;
+
     double imu_x0_, imu_y0_, imu_z0_;
     bool imu_calibrated_;
+
+    Eigen::Matrix3f robot_pose_;
+
+    int n_concave_;
 
     int image_analysis(const cv::Mat &rgb_img, const cv::Mat &depth_img,
                                           cv::Mat &color_mask, pcl::PointXYZ &position,pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud);
@@ -140,9 +154,13 @@ private:
     void publish_evidence(const std::string &object_id,
                           const cv::Mat &image);
     void publish_obstacle();
-
+    void publish_object(const std::string &id, const pcl::PointXY position);
     bool detectObstacle(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &cloud);
 
-    double estimateDepth(const cv::Mat &depth_img, int y_coordinate);
+    double estimateDepth(const cv::Mat &depth_img, cv::Point mass_center);
+
+    bool is_new_object(const pcl::PointXY &position);
+
+    bool is_concave(const cv::Mat &depth_img, const cv::Mat &mask_img);
 };
 }
