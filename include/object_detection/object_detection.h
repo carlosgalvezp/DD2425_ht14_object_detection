@@ -17,6 +17,8 @@
 #include <sensor_msgs/PointCloud2.h>
 #include "sensor_msgs/Imu.h"
 #include <geometry_msgs/Pose2D.h>
+#include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
 
 #include <image_transport/image_transport.h>
 #include <image_transport/subscriber_filter.h>
@@ -87,6 +89,15 @@ class Object_Detection : rob::BasicNode{
         bool remove_floor;
     };
 
+    struct Object
+    {
+        pcl::PointXY position_;
+        std::string id_;
+
+        Object(pcl::PointXY position, const std::string &id)
+            :position_(position), id_(id){}
+    };
+
     typedef message_filters::sync_policies::
         ApproximateTime<sensor_msgs::Image,
                         sensor_msgs::Image> RGBD_Sync_Policy;
@@ -111,7 +122,7 @@ private:
 
     ros::ServiceClient service_client_;
 
-    ros::Publisher speaker_pub_, evidence_pub_, obstacle_pub_;
+    ros::Publisher speaker_pub_, evidence_pub_, obstacle_pub_, marker_pub_;
     ros::Subscriber imu_sub_, odometry_sub_;
 
     dynamic_reconfigure::Server<object_detection::ColorTuningConfig> DR_server_;
@@ -130,7 +141,7 @@ private:
 
     Object_Recognition object_recognition_;
 
-    std::vector<pcl::PointXY> objects_position_;
+    std::vector<Object> objects_position_;
 
     double imu_x0_, imu_y0_, imu_z0_;
     bool imu_calibrated_;
@@ -163,5 +174,7 @@ private:
     bool is_new_object(const pcl::PointXY &position);
 
     bool is_concave(const cv::Mat &depth_img, const cv::Mat &mask_img);
+
+    void publish_markers();
 };
 }

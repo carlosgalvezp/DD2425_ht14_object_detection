@@ -12,6 +12,7 @@ Object_Detection::Object_Detection()
     evidence_pub_ = n.advertise<ras_msgs::RAS_Evidence>(TOPIC_EVIDENCE, 10);
     speaker_pub_ = n.advertise<std_msgs::String>(TOPIC_SPEAKER, 10);
     obstacle_pub_ = n.advertise<std_msgs::Bool>(TOPIC_OBSTACLE, 10);
+    marker_pub_ = n.advertise<visualization_msgs::MarkerArray>(TOPIC_MARKERS, 10);
 
     // ** Subscribers
     imu_sub_ = n.subscribe(TOPIC_IMU, QUEUE_SIZE,  &Object_Detection::IMUCallback, this);
@@ -43,7 +44,7 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
                                      const sensor_msgs::ImageConstPtr &depth_msg)
 {
     ros::WallTime t_begin = ros::WallTime::now();
-    if(frame_counter_ > 20 || started_)
+    if(frame_counter_ > 50 || started_)
     {
         started_ = true;
         // ** Convert ROS messages to OpenCV images and scale
@@ -54,6 +55,8 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         cv::Mat hsv_img;
         cv::cvtColor(rgb_img, hsv_img, CV_BGR2HSV);
         cv::imshow("RGB", rgb_img);
+        cv::imshow("Depth", depth_img);
+
         cv::waitKey(1);
         // ** Detect color in the image
         cv::Mat color_mask = cv::Mat::zeros(rgb_img.rows, rgb_img.cols, CV_8UC1);
@@ -62,14 +65,15 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         cv::Mat floor_mask;
         int color = image_analysis(rgb_img, depth_img, color_mask, position_robot_frame, cloud, floor_mask);
         cv::imshow("Floor mask", floor_mask);
-        std::cout << "Position: "<<position_robot_frame.x<<std::endl;
+        cv::imshow("Color mask", color_mask);
+        std::cout << "Position: "<<position_robot_frame.x << "[Detection: "<<D_OBJECT_DETECTION<<", Recognition: "<<D_OBJECT_RECOGNITION<<"]" << std::endl;
 
         // ** Call the recognition node if object found
         if (color >= 0 && position_robot_frame.x < D_OBJECT_DETECTION)
         {
             // ** Analyze concavity while we approach the object
             n_concave_ += is_concave(depth_img, color_mask)? -1 : 1;
-
+            std::cout << "N CONCAVE: "<<n_concave_<<std::endl;
             // ** Close enough -> recognize
             if(position_robot_frame.x < D_OBJECT_RECOGNITION)
             {
@@ -82,16 +86,20 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
 
                 if(is_new_object(position_world_frame))
                 {
-                    objects_position_.push_back(position_world_frame);
-                    n_concave_ = 0;
                     // ** Recognition
-                    std::string object = object_recognition_.classify(hsv_img, depth_img, color_mask,n_concave_ > 0);
+                    std::string object = object_recognition_.classify(rgb_img, depth_img, color_mask,n_concave_ < 0);
                     std::string msg = "I see a " + object;
                     ROS_INFO("%s", msg.c_str());
+
+                    // ** Update the map
+                    objects_position_.push_back(Object(position_world_frame, object));
 
                     // ** Publish evidence, object (to the map) and obstacle detection
                     publish_evidence(object, rgb_img);
                     publish_object(object, position_world_frame);
+                    publish_markers();
+                    n_concave_ = 0;
+                    cv::waitKey(0);
                 }
             }
             else{
@@ -131,7 +139,7 @@ int Object_Detection::image_analysis(const cv::Mat &rgb_img, const cv::Mat &dept
     // ** Create point cloud and transform into robot coordinates
     PCL_Utils::buildPointCloud(rgb_img, depth_img, cloud, SCALE_FACTOR);
     pcl::transformPointCloud(*cloud, *cloud, t_cam_to_robot_);
-
+//    PCL_Utils::visualizePointCloud(cloud);
     // ** Remove floor
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr floor_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
     get_floor_plane(cloud, floor_cloud);
@@ -168,10 +176,20 @@ void Object_Detection::get_floor_plane(const pcl::PointCloud<pcl::PointXYZRGB>::
 {
     // Create the filtering object
     pcl::PassThrough<pcl::PointXYZRGB> pass;
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_1 (new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_2 (new pcl::PointCloud<pcl::PointXYZRGB>);
+
     pass.setInputCloud (cloud_in);
     pass.setFilterFieldName ("z");
-    pass.setFilterLimits (-1.0, 0.015);
-    pass.filter (*cloud_out);
+    pass.setFilterLimits (-10.0, 0.015);
+    pass.filter (*cloud_1);
+
+    pass.setInputCloud (cloud_in);
+    pass.setFilterFieldName ("z");
+    pass.setFilterLimits (0.05, 10.0);
+    pass.filter (*cloud_2);
+
+    *cloud_out = *cloud_1 + *cloud_2;
 }
 
 void Object_Detection::backproject_floor(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &floor_cloud,
@@ -292,7 +310,7 @@ int Object_Detection::color_analysis(const cv::Mat &img,
 
 bool Object_Detection::detectObstacle(const cv::Mat &floor_mask)
 {
-    for(unsigned int j=ROI_MIN_U; j < ROI_MAX_U; j+= 10)
+    for(unsigned int j=ROI_MIN_U+80; j < ROI_MAX_U-80; j+= 10)
     {
         bool lineGood = true;
         for(unsigned int i=ROI_MIN_V; i < ROI_MAX_V; i+=5)
@@ -335,8 +353,7 @@ bool Object_Detection::is_concave(const cv::Mat &depth_img, const cv::Mat &mask_
         }
     }
     double ratio = nanPoints/totalPoints;
-    std::cout << "RATIO: "<<ratio <<std::endl;
-    return ratio > 0.5;
+   return ratio > 0.7;
 }
 
 void Object_Detection::DR_Callback(ColorTuningConfig &config, uint32_t level)
@@ -386,12 +403,13 @@ void Object_Detection::publish_evidence(const std::string &object_id, const cv::
     msg.stamp = stamp;
     msg.group_number = GROUP_NUMBER;
     msg.image_evidence = *rgb_img.toImageMsg();
+    msg.object_id = object_id;
 
     std_msgs::String speaker_msg;
     speaker_msg.data = "I see " + object_id;
 
     evidence_pub_.publish(msg);
-    speaker_pub_.publish(speaker_msg);
+//    speaker_pub_.publish(speaker_msg);
 }
 
 void Object_Detection::publish_obstacle(bool is_obstacle)
@@ -437,6 +455,10 @@ void Object_Detection::IMUCallback(const sensor_msgs::ImuConstPtr &imu_msg)
 void Object_Detection::OdometryCallback(const geometry_msgs::Pose2DConstPtr &odometry_msg)
 {
     double x,y,theta;
+    x = odometry_msg->x;
+    y = odometry_msg->y;
+    theta = odometry_msg->theta;
+
     robot_pose_ << cos(theta), -sin(theta), x,
                    sin(theta),  cos(theta), y,
                             0,           0, 1.0;
@@ -462,12 +484,54 @@ double Object_Detection::estimateDepth(const cv::Mat &depth_img, cv::Point mass_
 
 bool Object_Detection::is_new_object(const pcl::PointXY &position)
 {
+    std::cout << "Is new object: "<<objects_position_.size() << "objects"<<std::endl;
     for(std::size_t i = 0; i < objects_position_.size(); ++i)
     {
-        if(PCL_Utils::euclideanDistance(position, objects_position_[i]) > NEW_OBJECT_MIN_DISTANCE)
+        double d =PCL_Utils::euclideanDistance(position, objects_position_[i].position_);
+        std::cout << "Distance to map: "<<d<<std::endl;
+        if(d < NEW_OBJECT_MIN_DISTANCE)
             return false;
     }
     return true;
+}
+
+void Object_Detection::publish_markers()
+{
+    visualization_msgs::MarkerArray msg;
+    msg.markers.resize(objects_position_.size()*2); // Display object and ID text
+
+    for(std::size_t i=0; i < msg.markers.size(); ++i)
+    {        
+        visualization_msgs::Marker & marker_obj = msg.markers[i];
+        Object & obj = objects_position_[i%objects_position_.size()];
+
+        double z = i < objects_position_.size() ? 0 : 0.2;
+        uint32_t visualize_type = i < objects_position_.size() ? visualization_msgs::Marker::CUBE : visualization_msgs::Marker::TEXT_VIEW_FACING;
+        marker_obj.header.frame_id = COORD_FRAME_WORLD;
+        marker_obj.header.stamp = ros::Time();
+        marker_obj.ns = "Objects";
+        marker_obj.id = i;
+        marker_obj.action = visualization_msgs::Marker::ADD;
+        marker_obj.pose.position.x = obj.position_.x;
+        marker_obj.pose.position.y = obj.position_.y;
+        marker_obj.pose.position.z = z;
+
+        marker_obj.pose.orientation.x = 0.0;
+        marker_obj.pose.orientation.y = 0.0;
+        marker_obj.pose.orientation.z = 0.0;
+        marker_obj.pose.orientation.w = 1.0;
+        marker_obj.scale.x = 0.05;
+        marker_obj.scale.y = 0.05;
+        marker_obj.scale.z = 0.05;
+        marker_obj.color.a = 1.0;
+        marker_obj.color.r = 0.0;
+        marker_obj.color.g = 1.0;
+        marker_obj.color.b = 0.0;
+        marker_obj.type = visualize_type;
+        marker_obj.text = obj.id_;
+
+    }
+    marker_pub_.publish( msg);
 }
 
 }  // namespace
