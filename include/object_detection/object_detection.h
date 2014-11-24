@@ -66,12 +66,14 @@
 
 // Geometric parameters
 #define ROBOT_BORDER            0.115                     // [m] Distance from camera to robot front border
-#define D_OBJECT_DETECTION      ROBOT_BORDER + 0.25       // [m] Distance at which we start trying to detect the object
+#define D_OBJECT_DETECTION      ROBOT_BORDER + 0.20       // [m] Distance at which we start trying to detect the object
 #define D_OBJECT_RECOGNITION    ROBOT_BORDER + 0.15       // [m] Distance at which we recognize the object (and speak)
 #define D_OBEJCT_STOP           ROBOT_BORDER + 0.09       // [m] Distance at which we stop in front of the object
 #define MIN_DIST_OBSTACLE       ROBOT_BORDER + 0.08       // [m] Distance at which we stop in front of an obstacle (wall)
 #define NEW_OBJECT_MIN_DISTANCE 0.2                       // [m] Min distance between objects
 
+
+#define CROP_SIZE   150 // Size of the square placed at the mass center of the object, cropping the image for further processing
 namespace object_detection
 {
 class Object_Detection : rob::BasicNode{
@@ -152,15 +154,17 @@ private:
 
     int image_analysis(const cv::Mat &rgb_img, const cv::Mat &depth_img,
                                           cv::Mat &color_mask, pcl::PointXYZ &position, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud,
-                                          cv::Mat &floor_mask);
+                                          cv::Mat &floor_mask,
+                                          cv::Mat &color_ROI);
 
     void get_floor_plane(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &cloud_in,
                                   pcl::PointCloud<pcl::PointXYZRGB>::Ptr      &cloud_out);
     void backproject_floor(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &floor_cloud,
                             cv::Mat &floor_mask);
 
-    int color_analysis(const cv::Mat &img, cv::Point2i &mass_center, cv::Mat &out_img);
-
+    int color_analysis(const cv::Mat &img,
+                             cv::Point2i &mass_center,
+                             cv::Mat &out_img);
     void load_calibration(const std::string &path);
 
     void publish_evidence(const std::string &object_id,
