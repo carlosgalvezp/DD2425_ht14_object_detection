@@ -337,7 +337,7 @@ bool Object_Detection::detectObstacle(const cv::Mat &floor_mask)
     for(unsigned int j=ROI_MIN_U+80; j < ROI_MAX_U-80; j+= 10)
     {
         bool lineGood = true;
-        for(unsigned int i=ROI_MIN_V; i < ROI_MAX_V; i+=5)
+        for(unsigned int i=ROI_MIN_V; i < ROI_MAX_V-100; i+=5)
         {
             if(floor_mask.at<uint8_t>(i,j) == 0) // there is visible floor
             {

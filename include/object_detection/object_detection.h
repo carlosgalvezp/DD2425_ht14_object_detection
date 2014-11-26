@@ -66,7 +66,7 @@
 
 // Geometric parameters
 #define ROBOT_BORDER            0.115                     // [m] Distance from camera to robot front border
-#define D_OBJECT_DETECTION      ROBOT_BORDER + 0.22       // [m] Distance at which we start trying to detect the object
+#define D_OBJECT_DETECTION      ROBOT_BORDER + 0.21       // [m] Distance at which we start trying to detect the object
 #define D_OBEJCT_STOP           ROBOT_BORDER + 0.09       // [m] Distance at which we stop in front of the object
 #define MIN_DIST_OBSTACLE       ROBOT_BORDER + 0.08       // [m] Distance at which we stop in front of an obstacle (wall)
 #define NEW_OBJECT_MIN_DISTANCE 0.2                       // [m] Min distance between objects
