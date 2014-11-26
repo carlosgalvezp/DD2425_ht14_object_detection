@@ -62,18 +62,17 @@
 // ** Object detection
 // Image parameters
 #define MIN_PIXEL_OBJECT        200                       // [pixel] Min number of pixels to classify blob as object
-#define MAX_ASPECT_RATIO        2.0                       // Aspect ratio  = max(h/w, w/h), w,h are the dimensions of the blob's bounding box
+#define MAX_ASPECT_RATIO        1.5                       // Aspect ratio  = max(h/w, w/h), w,h are the dimensions of the blob's bounding box
 
 // Geometric parameters
 #define ROBOT_BORDER            0.115                     // [m] Distance from camera to robot front border
-#define D_OBJECT_DETECTION      ROBOT_BORDER + 0.20       // [m] Distance at which we start trying to detect the object
-#define D_OBJECT_RECOGNITION    ROBOT_BORDER + 0.15       // [m] Distance at which we recognize the object (and speak)
+#define D_OBJECT_DETECTION      ROBOT_BORDER + 0.22       // [m] Distance at which we start trying to detect the object
 #define D_OBEJCT_STOP           ROBOT_BORDER + 0.09       // [m] Distance at which we stop in front of the object
 #define MIN_DIST_OBSTACLE       ROBOT_BORDER + 0.08       // [m] Distance at which we stop in front of an obstacle (wall)
 #define NEW_OBJECT_MIN_DISTANCE 0.2                       // [m] Min distance between objects
 
 
-#define CROP_SIZE   150 // Size of the square placed at the mass center of the object, cropping the image for further processing
+#define CROP_SIZE   200 // Size of the square placed at the mass center of the object, cropping the image for further processing
 namespace object_detection
 {
 class Object_Detection : rob::BasicNode{
@@ -125,6 +124,7 @@ private:
     ros::ServiceClient service_client_;
 
     ros::Publisher speaker_pub_, evidence_pub_, obstacle_pub_, marker_pub_;
+    ros::Publisher pcl_pub_;
     ros::Subscriber imu_sub_, odometry_sub_;
 
     dynamic_reconfigure::Server<object_detection::ColorTuningConfig> DR_server_;

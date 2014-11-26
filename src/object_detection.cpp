@@ -14,6 +14,7 @@ Object_Detection::Object_Detection()
     obstacle_pub_ = n.advertise<std_msgs::Bool>(TOPIC_OBSTACLE, 10);
     marker_pub_ = n.advertise<visualization_msgs::MarkerArray>(TOPIC_MARKERS, 10);
 
+    pcl_pub_ = n.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/object_detection/cloud", 2);
     // ** Subscribers
     imu_sub_ = n.subscribe(TOPIC_IMU, QUEUE_SIZE,  &Object_Detection::IMUCallback, this);
     odometry_sub_ = n.subscribe(TOPIC_ODOMETRY, QUEUE_SIZE,  &Object_Detection::OdometryCallback, this);
@@ -66,44 +67,44 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         int color = image_analysis(rgb_img, depth_img, color_mask, position_robot_frame, cloud, floor_mask, rgb_cropped);
         cv::imshow("Floor mask", floor_mask);
         cv::imshow("Color mask", color_mask);
-        std::cout << "Position: "<<position_robot_frame.x << " [Detection: "<<D_OBJECT_DETECTION<<", Recognition: "<<D_OBJECT_RECOGNITION<<"]" << std::endl;
+        std::cout << "Position: "<<position_robot_frame.x << " [Detection: "<<D_OBJECT_DETECTION<< std::endl;
         cv::waitKey(1);
         // ** Call the recognition node if object found
         if (color >= 0 && position_robot_frame.x < D_OBJECT_DETECTION)
         {
-//            cv::imshow("RGB cropped",rgb_cropped);
-//            cv::waitKey(1);
+            cv::imshow("RGB cropped",rgb_cropped);
+            cv::waitKey(1);
 
-//            // ** Run object recognition for a given number of frames and get the maximum vote
-//            n_concave_ = is_concave(depth_img, color_mask)? -1 : 1;
-//            // ** Transform into world frame and see if we have seen this before
-//            pcl::PointXY position_robot_coord_2d, position_world_frame;
-//            position_robot_coord_2d.x = position_robot_frame.x;
-//            position_robot_coord_2d.y = position_robot_frame.y;
-//            PCL_Utils::transformPoint(position_robot_coord_2d, robot_pose_, position_world_frame);
+            // ** Run object recognition for a given number of frames and get the maximum vote
+            n_concave_ = is_concave(depth_img, color_mask)? -1 : 1;
+            // ** Transform into world frame and see if we have seen this before
+            pcl::PointXY position_robot_coord_2d, position_world_frame;
+            position_robot_coord_2d.x = position_robot_frame.x;
+            position_robot_coord_2d.y = position_robot_frame.y;
+            PCL_Utils::transformPoint(position_robot_coord_2d, robot_pose_, position_world_frame);
 
-//            if(is_new_object(position_world_frame))
-//            {
-//                // ** Recognition
-//                std::string object;
-//                if(object_recognition_.classify(rgb_img, rgb_cropped,n_concave_ < 0, color_mask, object))
-//                {
-//                    std::string msg = "I see a " + object;
-//                    ROS_INFO("%s", msg.c_str());
+            if(is_new_object(position_world_frame))
+            {
+                // ** Recognition
+                std::string object;
+                if(object_recognition_.classify(rgb_img, rgb_cropped,n_concave_ < 0, color_mask, object))
+                {
+                    std::string msg = "I see a " + object;
+                    ROS_INFO("%s", msg.c_str());
 
-//                    // ** Update the map
-//                    objects_position_.push_back(Object(position_world_frame, object));
+                    // ** Update the map
+                    objects_position_.push_back(Object(position_world_frame, object));
 
-//                    // ** Publish evidence, object (to the map) and obstacle detection
-//                    publish_evidence(object, rgb_img);
-//                    publish_object(object, position_world_frame);
-//                    publish_markers();
-//                    n_concave_ = 0;
-//                }
-//            }
-//            else{
-//                //                 Do something else? Go towards object maybe?
-//            }
+                    // ** Publish evidence, object (to the map) and obstacle detection
+                    publish_evidence(object, rgb_img);
+                    publish_object(object, position_world_frame);
+                    publish_markers();
+                    n_concave_ = 0;
+                }
+            }
+            else{
+                //                 Do something else? Go towards object maybe?
+            }
         }
         // Leverage the work to detect obstacles
         else
@@ -139,7 +140,7 @@ int Object_Detection::image_analysis(const cv::Mat &rgb_img, const cv::Mat &dept
     // ** Create point cloud and transform into robot coordinates
     PCL_Utils::buildPointCloud(rgb_img, depth_img, cloud, SCALE_FACTOR);
     pcl::transformPointCloud(*cloud, *cloud, t_cam_to_robot_);
-//    PCL_Utils::visualizePointCloud(cloud);
+    pcl_pub_.publish(*cloud);
     // ** Remove floor
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr floor_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
     get_floor_plane(cloud, floor_cloud);
@@ -169,12 +170,26 @@ int Object_Detection::image_analysis(const cv::Mat &rgb_img, const cv::Mat &dept
         PCL_Utils::transformPoint(position, t_cam_to_robot_, position);
 
         // ** Crop image for further processing
-        int crop_size1 = std::min(rgb_img.cols-mass_center.y, CROP_SIZE/2);
-        int crop_size2 = std::min(rgb_img.rows-mass_center.x, CROP_SIZE/2);
-        int crop_size = std::min(crop_size1, crop_size2);
-        cv::Rect bbox = cv::Rect(std::max(0,mass_center.x - crop_size/2), std::max(0,mass_center.y-crop_size/2), crop_size,crop_size);
-//        cv::Mat tmp = rgb_img(bbox);
-//        tmp.copyTo(rgb_cropped);
+        std::cout << "Mass center: "<<mass_center.x<<","<<mass_center.y<<std::endl;
+        int rect_x = mass_center.x - CROP_SIZE/2;
+        int rect_y = mass_center.y - CROP_SIZE/2;
+
+        if(rect_x < 0)
+            rect_x = 0;
+
+        if(rect_y< 0)
+            rect_y = 0;
+
+        if(rect_x > rgb_img.cols - 1 - CROP_SIZE)
+            rect_x = rgb_img.cols -1 - CROP_SIZE;
+
+        if(rect_y > rgb_img.rows - 1 - CROP_SIZE)
+            rect_y = rgb_img.rows -1 - CROP_SIZE;
+
+        std::cout << "Rect x: "<<rect_x << "Rect y: "<<rect_y<<std::endl;
+        cv::Rect bbox = cv::Rect(rect_x, rect_y, CROP_SIZE,CROP_SIZE);
+        cv::Mat tmp = rgb_img(bbox);
+        tmp.copyTo(rgb_cropped);
     }
     return color;
 }
@@ -319,7 +334,7 @@ int Object_Detection::color_analysis(const cv::Mat &img,
 
 bool Object_Detection::detectObstacle(const cv::Mat &floor_mask)
 {
-    for(unsigned int j=ROI_MIN_U+90; j < ROI_MAX_U-90; j+= 10)
+    for(unsigned int j=ROI_MIN_U+80; j < ROI_MAX_U-80; j+= 10)
     {
         bool lineGood = true;
         for(unsigned int i=ROI_MIN_V; i < ROI_MAX_V; i+=5)
@@ -362,7 +377,7 @@ bool Object_Detection::is_concave(const cv::Mat &depth_img, const cv::Mat &mask_
         }
     }
     double ratio = nanPoints/totalPoints;
-   return ratio > 0.7;
+   return ratio > 0.6;
 }
 
 void Object_Detection::DR_Callback(ColorTuningConfig &config, uint32_t level)
@@ -404,7 +419,7 @@ void Object_Detection::publish_evidence(const std::string &object_id, const cv::
     // ** Convert cv::Mat to sensor_msgs/Image
     cv_bridge::CvImage rgb_img;
     rgb_img.header.stamp = stamp;
-    rgb_img.encoding = sensor_msgs::image_encodings::BGR8;
+    rgb_img.encoding = sensor_msgs::image_encodings::RGB8;
     rgb_img.image = image;
 
     // ** Create messages
@@ -415,7 +430,10 @@ void Object_Detection::publish_evidence(const std::string &object_id, const cv::
     msg.object_id = object_id;
 
     std_msgs::String speaker_msg;
-    speaker_msg.data = "I see " + object_id;
+    if(object_id != OBJECT_PATRIC && object_id != OBJECT_UNKNOWN)
+        speaker_msg.data = "I see a " + object_id;
+    else
+        speaker_msg.data = "I see " + object_id;
 
     evidence_pub_.publish(msg);
     speaker_pub_.publish(speaker_msg);
@@ -514,16 +532,16 @@ void Object_Detection::publish_markers()
         visualization_msgs::Marker & marker_obj = msg.markers[i];
         Object & obj = objects_position_[i%objects_position_.size()];
 
-        double z = i < objects_position_.size() ? 0 : 0.2;
+        double z = i < objects_position_.size() ? 0 : 0.1;
         uint32_t visualize_type = i < objects_position_.size() ? visualization_msgs::Marker::CUBE : visualization_msgs::Marker::TEXT_VIEW_FACING;
         marker_obj.header.frame_id = COORD_FRAME_WORLD;
         marker_obj.header.stamp = ros::Time();
         marker_obj.ns = "Objects";
         marker_obj.id = i;
         marker_obj.action = visualization_msgs::Marker::ADD;
-        marker_obj.pose.position.x = obj.position_.x;
-        marker_obj.pose.position.y = obj.position_.y;
-        marker_obj.pose.position.z = z;
+        marker_obj.pose.position.x = obj.position_.x; //m
+        marker_obj.pose.position.y = obj.position_.y; //m
+        marker_obj.pose.position.z = z + 0.025; //m
 
         marker_obj.pose.orientation.x = 0.0;
         marker_obj.pose.orientation.y = 0.0;
@@ -533,8 +551,8 @@ void Object_Detection::publish_markers()
         marker_obj.scale.y = 0.05;
         marker_obj.scale.z = 0.05;
         marker_obj.color.a = 1.0;
-        marker_obj.color.r = 0.0;
-        marker_obj.color.g = 1.0;
+        marker_obj.color.r = i >= objects_position_.size();
+        marker_obj.color.g = i < objects_position_.size();
         marker_obj.color.b = 0.0;
         marker_obj.type = visualize_type;
         marker_obj.text = obj.id_;
