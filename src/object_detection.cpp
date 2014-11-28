@@ -500,7 +500,7 @@ double Object_Detection::estimateDepth(const cv::Mat &depth_img, cv::Point mass_
     for(unsigned int i = mass_center.y; i < IMG_ROWS; ++i)
     {
         double d = depth_img.at<float>(i,mass_center.x);
-        if( d!= 0 && !isnan(d))
+        if( d!= 0 && !std::isnan(d))
         {
             depth = d;
             break;
