@@ -3,7 +3,7 @@
 namespace object_detection
 {
 Object_Detection::Object_Detection()
-    : frame_counter_(0), started_(false), imu_calibrated_(false), n_concave_(0), n_obstacle_(0)
+    : frame_counter_(0), imu_calibrated_(false), n_concave_(0), n_obstacle_(0)
 {
     // ** Load camera extrinsic calibration
     load_calibration(RAS_Names::CALIBRATION_PATH);
@@ -15,6 +15,8 @@ Object_Detection::Object_Detection()
     marker_pub_ = n.advertise<visualization_msgs::MarkerArray>(TOPIC_MARKERS, 10);
 
     pcl_pub_ = n.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/object_detection/cloud", 2);
+    object_pcl_pub_ = n.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/object_detection/object", 2);
+
     // ** Subscribers
     imu_sub_ = n.subscribe(TOPIC_IMU, QUEUE_SIZE,  &Object_Detection::IMUCallback, this);
     odometry_sub_ = n.subscribe(TOPIC_ODOMETRY, QUEUE_SIZE,  &Object_Detection::OdometryCallback, this);
@@ -37,7 +39,9 @@ Object_Detection::Object_Detection()
                 ROI_.at<uint8_t>(v,u) = 255;
         }
     }
-    ros_time = ros::WallTime::now();
+
+    // ** Object recognition
+    object_recognition_ = Object_Recognition(object_pcl_pub_, t_cam_to_robot_);
 }
 
 
@@ -45,85 +49,31 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
                                      const sensor_msgs::ImageConstPtr &depth_msg)
 {
     ros::WallTime t_begin = ros::WallTime::now();
-    if(frame_counter_ > 50 || started_)
+    if(frame_counter_ > 50)
     {
-        started_ = true;
         // ** Convert ROS messages to OpenCV images and scale
         cv_bridge::CvImageConstPtr rgb_ptr   = cv_bridge::toCvShare(rgb_msg);
         cv_bridge::CvImageConstPtr depth_ptr   = cv_bridge::toCvShare(depth_msg);
         const cv::Mat& rgb_img     = rgb_ptr->image;
         const cv::Mat& depth_img   = depth_ptr->image;
-        cv::Mat hsv_img;
-        cv::cvtColor(rgb_img, hsv_img, CV_BGR2HSV);
-        cv::imshow("RGB", rgb_img);
-        cv::imshow("Depth", depth_img);
 
-        cv::waitKey(1);
-        // ** Detect color in the image
-        cv::Mat color_mask = cv::Mat::zeros(rgb_img.rows, rgb_img.cols, CV_8UC1);
-        pcl::PointXYZ position_robot_frame;
-        pcl::PointCloud<pcl::PointXYZRGB>:: Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
-        cv::Mat floor_mask, rgb_cropped;
-        int color = image_analysis(rgb_img, depth_img, color_mask, position_robot_frame, cloud, floor_mask, rgb_cropped);
-        cv::imshow("Floor mask", floor_mask);
-        cv::imshow("Color mask", color_mask);
-        std::cout << "Position: "<<position_robot_frame.x << " [Detection: "<<D_OBJECT_DETECTION<< std::endl;
-        cv::waitKey(1);
-        // ** Call the recognition node if object found
-        if (color >= 0 && position_robot_frame.x < D_OBJECT_DETECTION)
+        // ** Detect Object
+        std::string object_id;
+        pcl::PointXY object_position_world_frame;
+        bool foundObject = detectObject(rgb_img, depth_img, object_id, object_position_world_frame);
+
+        // ** Publish evidence if found object
+        if(foundObject)
         {
-            cv::imshow("RGB cropped",rgb_cropped);
-            cv::waitKey(1);
+            // ** Update the map
+            objects_position_.push_back(Object(object_position_world_frame, object_id));
 
-            // ** Run object recognition for a given number of frames and get the maximum vote
-            n_concave_ = is_concave(depth_img, color_mask)? -1 : 1;
-            // ** Transform into world frame and see if we have seen this before
-            pcl::PointXY position_robot_coord_2d, position_world_frame;
-            position_robot_coord_2d.x = position_robot_frame.x;
-            position_robot_coord_2d.y = position_robot_frame.y;
-            PCL_Utils::transformPoint(position_robot_coord_2d, robot_pose_, position_world_frame);
-
-            if(is_new_object(position_world_frame))
-            {
-                // ** Recognition
-                std::string object;
-                if(object_recognition_.classify(rgb_img, rgb_cropped,n_concave_ < 0, color_mask, object))
-                {
-                    std::string msg = "I see a " + object;
-                    ROS_INFO("%s", msg.c_str());
-
-                    // ** Update the map
-                    objects_position_.push_back(Object(position_world_frame, object));
-
-                    // ** Publish evidence, object (to the map) and obstacle detection
-                    publish_evidence(object, rgb_img);
-                    publish_object(object, position_world_frame);
-                    publish_markers();
-                    n_concave_ = 0;
-                }
-            }
-            else{
-                //                 Do something else? Go towards object maybe?
-            }
+            // ** Publish evidence, object (to the map) and obstacle detection
+            publish_evidence(object_id, rgb_img);
+            publish_object(object_id, object_position_world_frame);
+            publish_markers();
         }
-        // Leverage the work to detect obstacles
-        else
-        {
-            n_concave_ = 0;
-            bool obstacle(false);
-            if(detectObstacle(floor_mask))
-            {
-                ROS_ERROR("OBJECT DETECTED");
-                n_obstacle_++;
-                if(n_obstacle_ > 10)
-                    obstacle = true;
-            }
-            else
-            {
-                n_obstacle_ = 0;
-            }
-            publish_obstacle(obstacle);
-        }
+
     }
     else
         frame_counter_++;
@@ -132,34 +82,90 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
     ROS_INFO("[Object Detection] %.3f ms", RAS_Utils::time_diff_ms(t_begin, t_end));
 }
 
-int Object_Detection::image_analysis(const cv::Mat &rgb_img, const cv::Mat &depth_img,
+bool Object_Detection::detectObject(const Mat &bgr_img, const Mat &depth_img,
+                                    string &object_id, pcl::PointXY &object_position_world_frame)
+{
+    bool result = false;
+    pcl::PointCloud<pcl::PointXYZRGB>:: Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointXYZ object_position_robot_frame;
+    cv::Mat color_mask, floor_mask, rgb_cropped;
+
+    ros::WallTime t_img(ros::WallTime::now());
+    int color = image_analysis(bgr_img, depth_img, color_mask, object_position_robot_frame, cloud, floor_mask, rgb_cropped);
+    ROS_INFO("Time image anaysis: %.3f ms", RAS_Utils::time_diff_ms(t_img, ros::WallTime::now()));
+
+    cv::imshow("Floor mask", floor_mask);
+    cv::imshow("Color mask", color_mask);
+    std::cout << "Position: "<<object_position_world_frame.x << " [Detection: "<<D_OBJECT_DETECTION<< std::endl;
+    cv::waitKey(1);
+
+    // ** Call the recognition node if object found
+    if (color >= 0)// && position_robot_frame.x < D_OBJECT_DETECTION)
+    {
+        // ** Transform into world frame and see if we have seen this before
+//            pcl::PointXY position_robot_coord_2d, position_world_frame;
+//            position_robot_coord_2d.x = position_robot_frame.x;
+//            position_robot_coord_2d.y = position_robot_frame.y;
+//            PCL_Utils::transformPoint(position_robot_coord_2d, robot_pose_, position_world_frame);
+
+//            if(is_new_object(position_world_frame))
+//            {
+            // ** Recognition
+            std::string object_id;
+            ros::WallTime t_rec(ros::WallTime::now());
+            result = object_recognition_.classify(bgr_img, depth_img, color_mask, object_id);
+            ROS_INFO("Time recognition: %.3f ms", RAS_Utils::time_diff_ms(t_rec, ros::WallTime::now()));
+    }
+    // ** Leverage the work to detect obstacles
+    else
+    {
+        if(detectObstacle(floor_mask))
+        {
+            ROS_ERROR("OBSTACLE DETECTED");
+            n_obstacle_++;
+        }
+        else
+        {
+            n_obstacle_ = 0;
+        }
+        publish_obstacle(n_obstacle_ > 10);
+    }
+    return result;
+}
+
+int Object_Detection::image_analysis(const cv::Mat &bgr_img, const cv::Mat &depth_img,
                                       cv::Mat &color_mask, pcl::PointXYZ &position, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud,
                                       cv::Mat &floor_mask,
                                       cv::Mat &rgb_cropped)
 {
     // ** Create point cloud and transform into robot coordinates
-    PCL_Utils::buildPointCloud(rgb_img, depth_img, cloud, SCALE_FACTOR);
+    PCL_Utils::buildPointCloud(bgr_img, depth_img, cloud, SCALE_FACTOR);
     pcl::transformPointCloud(*cloud, *cloud, t_cam_to_robot_);
     pcl_pub_.publish(*cloud);
+
     // ** Remove floor
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr floor_cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
     get_floor_plane(cloud, floor_cloud);
 
     // ** Back-project to get binary mask
-    floor_mask = 255*cv::Mat::ones(rgb_img.rows, rgb_img.cols, CV_8UC1);
+    floor_mask = 255*cv::Mat::ones(bgr_img.rows, bgr_img.cols, CV_8UC1);
     backproject_floor(floor_cloud, floor_mask);
     cv::bitwise_and(floor_mask, ROI_, floor_mask); //Combine with ROI
 
     // ** Apply mask to remove floor in 2D
     cv::Mat rgb_filtered;
-    rgb_img.copyTo(rgb_filtered, floor_mask);
+    bgr_img.copyTo(rgb_filtered, floor_mask);
     cv::imshow("Image no floor", rgb_filtered);
     cv::waitKey(1);
-    // ** Color analysis (Ryan)
-    cv::Point2i mass_center;
-    int color = color_analysis(rgb_filtered, mass_center, color_mask);
 
-    // ** Combine with 3D mask
+    // ** Color analysis
+    cv::Point2i mass_center;
+
+    ros::WallTime t1(ros::WallTime::now());
+    int color = color_analysis(rgb_filtered, mass_center, color_mask);
+    ROS_INFO("Time color analysis: %.3f ms", RAS_Utils::time_diff_ms(t1, ros::WallTime::now()));
+
+    // ** Combine color mask and floor mask
     cv::bitwise_and(color_mask, floor_mask, color_mask);
 
     // ** Get 3D position of the object, if any
@@ -169,26 +175,15 @@ int Object_Detection::image_analysis(const cv::Mat &rgb_img, const cv::Mat &dept
         PCL_Utils::transform2Dto3D(mass_center, depth, position);
         PCL_Utils::transformPoint(position, t_cam_to_robot_, position);
 
-        // ** Crop image for further processing
-        std::cout << "Mass center: "<<mass_center.x<<","<<mass_center.y<<std::endl;
-        int rect_x = mass_center.x - CROP_SIZE/2;
-        int rect_y = mass_center.y - CROP_SIZE/2;
+        // ** Crop image for further processing (another function please!)
+        int rect_x = max(0, mass_center.x - CROP_SIZE/2);
+        int rect_y = max(0,mass_center.y - CROP_SIZE/2);
 
-        if(rect_x < 0)
-            rect_x = 0;
+        rect_x = min(rect_x, bgr_img.cols -1 - CROP_SIZE);
+        rect_y = min(rect_y, bgr_img.rows -1 - CROP_SIZE);
 
-        if(rect_y< 0)
-            rect_y = 0;
-
-        if(rect_x > rgb_img.cols - 1 - CROP_SIZE)
-            rect_x = rgb_img.cols -1 - CROP_SIZE;
-
-        if(rect_y > rgb_img.rows - 1 - CROP_SIZE)
-            rect_y = rgb_img.rows -1 - CROP_SIZE;
-
-        std::cout << "Rect x: "<<rect_x << "Rect y: "<<rect_y<<std::endl;
         cv::Rect bbox = cv::Rect(rect_x, rect_y, CROP_SIZE,CROP_SIZE);
-        cv::Mat tmp = rgb_img(bbox);
+        cv::Mat tmp = bgr_img(bbox);
         tmp.copyTo(rgb_cropped);
     }
     return color;
@@ -242,11 +237,11 @@ void Object_Detection::backproject_floor(const pcl::PointCloud<pcl::PointXYZRGB>
     cv::dilate(floor_mask, floor_mask, elementD);
 }
 
-int Object_Detection::color_analysis(const cv::Mat &img,
+int Object_Detection::color_analysis(const cv::Mat &bgr_img,
                                            cv::Point2i &mass_center,
                                            cv::Mat &out_img)
 {
-    out_img = cv::Mat::zeros(img.rows, img.cols, CV_8UC1);
+    out_img = cv::Mat::zeros(bgr_img.rows, bgr_img.cols, CV_8UC1);
 
     // ** Parameters
     int erode_times=1;
@@ -255,7 +250,7 @@ int Object_Detection::color_analysis(const cv::Mat &img,
 
     // ** Convert to HSV
     cv::Mat img_hsv;
-    cv::cvtColor(img,img_hsv,CV_BGR2HSV);
+    cv::cvtColor(bgr_img,img_hsv,CV_BGR2HSV);
 
     // ** Create color masks
     std::vector<cv::Mat> img_binary(number_of_colors);
@@ -430,7 +425,7 @@ void Object_Detection::publish_evidence(const std::string &object_id, const cv::
     msg.object_id = object_id;
 
     std_msgs::String speaker_msg;
-    if(object_id != OBJECT_PATRIC && object_id != OBJECT_UNKNOWN)
+    if(object_id != OBJECT_NAME_PATRIC && object_id != OBJECT_NAME_UNKNOWN)
         speaker_msg.data = "I see a " + object_id;
     else
         speaker_msg.data = "I see " + object_id;
@@ -500,7 +495,7 @@ double Object_Detection::estimateDepth(const cv::Mat &depth_img, cv::Point mass_
     for(unsigned int i = mass_center.y; i < IMG_ROWS; ++i)
     {
         double d = depth_img.at<float>(i,mass_center.x);
-        if( d!= 0 && !isnan(d))
+        if( d!= 0 && !std::isnan(d))
         {
             depth = d;
             break;

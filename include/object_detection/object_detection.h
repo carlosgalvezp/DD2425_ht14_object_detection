@@ -62,7 +62,7 @@
 // ** Object detection
 // Image parameters
 #define MIN_PIXEL_OBJECT        200                       // [pixel] Min number of pixels to classify blob as object
-#define MAX_ASPECT_RATIO        1.5                       // Aspect ratio  = max(h/w, w/h), w,h are the dimensions of the blob's bounding box
+#define MAX_ASPECT_RATIO        10 // 1.5                       // Aspect ratio  = max(h/w, w/h), w,h are the dimensions of the blob's bounding box
 
 // Geometric parameters
 #define ROBOT_BORDER            0.115                     // [m] Distance from camera to robot front border
@@ -124,7 +124,7 @@ private:
     ros::ServiceClient service_client_;
 
     ros::Publisher speaker_pub_, evidence_pub_, obstacle_pub_, marker_pub_;
-    ros::Publisher pcl_pub_;
+    ros::Publisher pcl_pub_, object_pcl_pub_;
     ros::Subscriber imu_sub_, odometry_sub_;
 
     dynamic_reconfigure::Server<object_detection::ColorTuningConfig> DR_server_;
@@ -132,7 +132,6 @@ private:
 
     ros::WallTime ros_time;
     int frame_counter_;
-    bool started_;
     cv::Mat ROI_;
 
     HSV_Params hsv_params_;
@@ -152,7 +151,10 @@ private:
 
     int n_concave_, n_obstacle_;
 
-    int image_analysis(const cv::Mat &rgb_img, const cv::Mat &depth_img,
+    bool detectObject(const cv::Mat &bgr_img, const cv::Mat &depth_img,
+                      std::string &object_id, pcl::PointXY &object_position_world_frame);
+
+    int image_analysis(const cv::Mat &bgr_img, const cv::Mat &depth_img,
                                           cv::Mat &color_mask, pcl::PointXYZ &position, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cloud,
                                           cv::Mat &floor_mask,
                                           cv::Mat &color_ROI);
@@ -162,7 +164,7 @@ private:
     void backproject_floor(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &floor_cloud,
                             cv::Mat &floor_mask);
 
-    int color_analysis(const cv::Mat &img,
+    int color_analysis(const cv::Mat &bgr_img,
                              cv::Point2i &mass_center,
                              cv::Mat &out_img);
     void load_calibration(const std::string &path);
