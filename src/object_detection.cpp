@@ -82,8 +82,8 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
     ROS_INFO("[Object Detection] %.3f ms", RAS_Utils::time_diff_ms(t_begin, t_end));
 }
 
-bool Object_Detection::detectObject(const Mat &bgr_img, const Mat &depth_img,
-                                    string &object_id, pcl::PointXY &object_position_world_frame)
+bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth_img,
+                                    std::string &object_id, pcl::PointXY &object_position_world_frame)
 {
     bool result = false;
     pcl::PointCloud<pcl::PointXYZRGB>:: Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
@@ -96,22 +96,21 @@ bool Object_Detection::detectObject(const Mat &bgr_img, const Mat &depth_img,
 
     cv::imshow("Floor mask", floor_mask);
     cv::imshow("Color mask", color_mask);
-    std::cout << "Position: "<<object_position_world_frame.x << " [Detection: "<<D_OBJECT_DETECTION<< std::endl;
+    std::cout << "Position: "<<object_position_robot_frame.x << " [Detection: "<<D_OBJECT_DETECTION<< std::endl;
     cv::waitKey(1);
 
     // ** Call the recognition node if object found
     if (color >= 0)// && position_robot_frame.x < D_OBJECT_DETECTION)
     {
         // ** Transform into world frame and see if we have seen this before
-//            pcl::PointXY position_robot_coord_2d, position_world_frame;
-//            position_robot_coord_2d.x = position_robot_frame.x;
-//            position_robot_coord_2d.y = position_robot_frame.y;
-//            PCL_Utils::transformPoint(position_robot_coord_2d, robot_pose_, position_world_frame);
+        pcl::PointXY position_robot_coord_2d;
+        position_robot_coord_2d.x = object_position_robot_frame.x;
+        position_robot_coord_2d.y = object_position_robot_frame.y;
+        PCL_Utils::transformPoint(position_robot_coord_2d, robot_pose_, object_position_world_frame);
 
 //            if(is_new_object(position_world_frame))
 //            {
             // ** Recognition
-            std::string object_id;
             ros::WallTime t_rec(ros::WallTime::now());
             result = object_recognition_.classify(bgr_img, depth_img, color_mask, object_id);
             ROS_INFO("Time recognition: %.3f ms", RAS_Utils::time_diff_ms(t_rec, ros::WallTime::now()));
@@ -528,7 +527,7 @@ void Object_Detection::publish_markers()
         Object & obj = objects_position_[i%objects_position_.size()];
 
         double z = i < objects_position_.size() ? 0 : 0.1;
-        uint32_t visualize_type = i < objects_position_.size() ? visualization_msgs::Marker::CUBE : visualization_msgs::Marker::TEXT_VIEW_FACING;
+        auto visualize_type = i < objects_position_.size() ? visualization_msgs::Marker::CUBE : visualization_msgs::Marker::TEXT_VIEW_FACING;
         marker_obj.header.frame_id = COORD_FRAME_WORLD;
         marker_obj.header.stamp = ros::Time();
         marker_obj.ns = "Objects";
