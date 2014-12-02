@@ -516,6 +516,19 @@ bool Object_Detection::is_new_object(const pcl::PointXY &position)
     return true;
 }
 
+void Object_Detection::saveObjectsPosition(const std::string &path)
+{
+    std::ofstream file;
+    file.open(path);
+    file << objects_position_.size();
+    for(std::size_t i = 0; i < objects_position_.size(); ++i)
+    {
+        const Object &obj = objects_position_[i];
+        file << obj.position_.x << " "<<obj.position_.y<<std::endl;
+    }
+    file.close();
+}
+
 void Object_Detection::publish_markers()
 {
     visualization_msgs::MarkerArray msg;

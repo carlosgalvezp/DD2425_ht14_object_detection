@@ -10,5 +10,9 @@ int main(int argc, char* argv[])
 
     // ** Spin
     ros::spin();
+
+    // ** Save data after Ctrl-C
+    o.saveObjectsPosition(RAS_Names::OBJECT_MAP_PATH);
+
     return 0;
 }
