@@ -112,7 +112,7 @@ bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth
 //            {
             // ** Recognition
             ros::WallTime t_rec(ros::WallTime::now());
-            result = object_recognition_.classify(bgr_img, depth_img, color_mask, object_id);
+//            result = object_recognition_.classify(bgr_img, depth_img, color_mask, object_id);
             ROS_INFO("Time recognition: %.3f ms", RAS_Utils::time_diff_ms(t_rec, ros::WallTime::now()));
     }
     // ** Leverage the work to detect obstacles
@@ -201,12 +201,12 @@ void Object_Detection::get_floor_plane(const pcl::PointCloud<pcl::PointXYZRGB>::
     pass.setFilterLimits (-10.0, 0.015);
     pass.filter (*cloud_1);
 
-    pass.setInputCloud (cloud_in);
-    pass.setFilterFieldName ("z");
-    pass.setFilterLimits (0.05, 10.0);
-    pass.filter (*cloud_2);
+//    pass.setInputCloud (cloud_in);
+//    pass.setFilterFieldName ("z");
+//    pass.setFilterLimits (0.05, 10.0);
+//    pass.filter (*cloud_2);
 
-    *cloud_out = *cloud_1 + *cloud_2;
+    *cloud_out = *cloud_1;// + *cloud_2;
 }
 
 void Object_Detection::backproject_floor(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &floor_cloud,
