@@ -31,9 +31,6 @@
 #include <dynamic_reconfigure/server.h>
 #include <object_detection/ColorTuningConfig.h>
 
-// Services
-#include <ras_srv_msgs/Recognition.h>
-
 // PCL
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
@@ -115,6 +112,7 @@ public:
     void IMUCallback(const sensor_msgs::ImuConstPtr &imu_msg);
     void OdometryCallback(const geometry_msgs::Pose2DConstPtr &odometry_msg);
 
+    void saveObjectsPosition(const string &path);
 private:
     message_filters::Subscriber<sensor_msgs::Image> rgb_sub_;
     message_filters::Subscriber<sensor_msgs::Image> depth_sub_;
@@ -173,6 +171,8 @@ private:
                           const cv::Mat &image);
     void publish_obstacle(bool is_obstacle);
     void publish_object(const std::string &id, const pcl::PointXY position);
+    void publish_markers();
+
     bool detectObstacle(const cv::Mat &floor_mask);
 
     double estimateDepth(const cv::Mat &depth_img, cv::Point mass_center);
@@ -181,6 +181,5 @@ private:
 
     bool is_concave(const cv::Mat &depth_img, const cv::Mat &mask_img);
 
-    void publish_markers();
 };
 }
