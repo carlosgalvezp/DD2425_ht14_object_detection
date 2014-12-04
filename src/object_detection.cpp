@@ -73,13 +73,12 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
             publish_object(object_id, object_position_world_frame);
             publish_markers();
         }
-
     }
     else
         frame_counter_++;
 
     ros::WallTime t_end = ros::WallTime::now();
-    ROS_INFO("[Object Detection] %.3f ms", RAS_Utils::time_diff_ms(t_begin, t_end));
+//    ROS_INFO("[Object Detection] %.3f ms", RAS_Utils::time_diff_ms(t_begin, t_end));
 }
 
 bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth_img,
@@ -92,15 +91,15 @@ bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth
 
     ros::WallTime t_img(ros::WallTime::now());
     int color = image_analysis(bgr_img, depth_img, color_mask, object_position_robot_frame, cloud, floor_mask, rgb_cropped);
-    ROS_INFO("Time image anaysis: %.3f ms", RAS_Utils::time_diff_ms(t_img, ros::WallTime::now()));
+//    ROS_INFO("Time image anaysis: %.3f ms", RAS_Utils::time_diff_ms(t_img, ros::WallTime::now()));
 
     cv::imshow("Floor mask", floor_mask);
     cv::imshow("Color mask", color_mask);
-    std::cout << "Position: "<<object_position_robot_frame.x << " [Detection: "<<D_OBJECT_DETECTION<< std::endl;
+//    std::cout << "Position: "<<object_position_robot_frame.x << " [Detection: "<<D_OBJECT_DETECTION<< std::endl;
     cv::waitKey(1);
 
     // ** Call the recognition node if object found
-    if (color >= 0)// && position_robot_frame.x < D_OBJECT_DETECTION)
+    if (color >= 0 && object_position_robot_frame.x < D_OBJECT_DETECTION)
     {
         // ** Transform into world frame and see if we have seen this before
         pcl::PointXY position_robot_coord_2d;
@@ -108,19 +107,20 @@ bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth
         position_robot_coord_2d.y = object_position_robot_frame.y;
         PCL_Utils::transformPoint(position_robot_coord_2d, robot_pose_, object_position_world_frame);
 
-//            if(is_new_object(position_world_frame))
-//            {
+        if(is_new_object(object_position_world_frame))
+        {
             // ** Recognition
             ros::WallTime t_rec(ros::WallTime::now());
-//            result = object_recognition_.classify(bgr_img, depth_img, color_mask, object_id);
-            ROS_INFO("Time recognition: %.3f ms", RAS_Utils::time_diff_ms(t_rec, ros::WallTime::now()));
+            result = object_recognition_.classify(bgr_img, depth_img, color_mask, object_id);
+//            ROS_INFO("Time recognition: %.3f ms", RAS_Utils::time_diff_ms(t_rec, ros::WallTime::now()));
+        }
     }
     // ** Leverage the work to detect obstacles
     else
     {
         if(detectObstacle(floor_mask))
         {
-            ROS_ERROR("OBSTACLE DETECTED");
+//            ROS_ERROR("OBSTACLE DETECTED");
             n_obstacle_++;
         }
         else
@@ -162,7 +162,7 @@ int Object_Detection::image_analysis(const cv::Mat &bgr_img, const cv::Mat &dept
 
     ros::WallTime t1(ros::WallTime::now());
     int color = color_analysis(rgb_filtered, mass_center, color_mask);
-    ROS_INFO("Time color analysis: %.3f ms", RAS_Utils::time_diff_ms(t1, ros::WallTime::now()));
+//    ROS_INFO("Time color analysis: %.3f ms", RAS_Utils::time_diff_ms(t1, ros::WallTime::now()));
 
     // ** Combine color mask and floor mask
     cv::bitwise_and(color_mask, floor_mask, color_mask);
