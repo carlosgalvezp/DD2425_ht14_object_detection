@@ -12,7 +12,7 @@ int main(int argc, char* argv[])
     ros::spin();
 
     // ** Save data after Ctrl-C
-    o.saveObjectsPosition(RAS_Names::OBJECT_MAP_PATH);
+    o.saveObjectsPosition(RAS_Names::OBJECT_POSITIONS_PATH);
 
     return 0;
 }

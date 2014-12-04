@@ -543,7 +543,7 @@ void Object_Detection::publish_markers()
         auto visualize_type = i < objects_position_.size() ? visualization_msgs::Marker::CUBE : visualization_msgs::Marker::TEXT_VIEW_FACING;
         marker_obj.header.frame_id = COORD_FRAME_WORLD;
         marker_obj.header.stamp = ros::Time();
-        marker_obj.ns = "Objects";
+        marker_obj.ns = "RVIZ_MARKER_NS_OBJECT";
         marker_obj.id = i;
         marker_obj.action = visualization_msgs::Marker::ADD;
         marker_obj.pose.position.x = obj.position_.x; //m
