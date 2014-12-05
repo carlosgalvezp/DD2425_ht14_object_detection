@@ -12,10 +12,13 @@ Object_Detection::Object_Detection()
     evidence_pub_ = n.advertise<ras_msgs::RAS_Evidence>(TOPIC_EVIDENCE, 10);
     speaker_pub_ = n.advertise<std_msgs::String>(TOPIC_SPEAKER, 10);
     obstacle_pub_ = n.advertise<std_msgs::Bool>(TOPIC_OBSTACLE, 10);
-    marker_pub_ = n.advertise<visualization_msgs::MarkerArray>(TOPIC_MARKERS, 10);
+    marker_pub_ = n.advertise<visualization_msgs::MarkerArray>(TOPIC_OBJECT_MARKERS, 10);
+    object_ekf_pub_ = n.advertise<geometry_msgs::Pose2D>(TOPIC_OBJECTS_EKF, 2);
 
     pcl_pub_ = n.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/object_detection/cloud", 2);
     object_pcl_pub_ = n.advertise<pcl::PointCloud<pcl::PointXYZRGB> >("/object_detection/object", 2);
+
+    robot_position_pub_ = n.advertise<geometry_msgs::Point>(TOPIC_ROBOT_OBJECT_POSITION,2);
 
     // ** Subscribers
     imu_sub_ = n.subscribe(TOPIC_IMU, QUEUE_SIZE,  &Object_Detection::IMUCallback, this);
@@ -70,8 +73,9 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
 
             // ** Publish evidence, object (to the map) and obstacle detection
             publish_evidence(object_id, rgb_img);
-            publish_object(object_id, object_position_world_frame);
             publish_markers();
+            publish_robot_position();
+            publish_object(object_id, object_position_world_frame);
         }
     }
     else
@@ -440,9 +444,18 @@ void Object_Detection::publish_obstacle(bool is_obstacle)
     obstacle_pub_.publish(msg);
 }
 
-void Object_Detection::publish_object(const std::string &id, const pcl::PointXY position)
+void Object_Detection::publish_object(const std::string &id, const pcl::PointXY &position)
 {
     ROS_ERROR("TO DO");
+}
+
+void Object_Detection::publish_robot_position()
+{
+    geometry_msgs::Point position;
+    position.x = robot_pose_(0,2);
+    position.y = robot_pose_(1,2);
+
+    robot_position_pub_.publish(position);
 }
 
 void Object_Detection::IMUCallback(const sensor_msgs::ImuConstPtr &imu_msg)
@@ -520,7 +533,7 @@ void Object_Detection::saveObjectsPosition(const std::string &path)
 {
     std::ofstream file;
     file.open(path);
-    file << objects_position_.size();
+    file << objects_position_.size()<<std::endl;
     for(std::size_t i = 0; i < objects_position_.size(); ++i)
     {
         const Object &obj = objects_position_[i];
@@ -543,7 +556,7 @@ void Object_Detection::publish_markers()
         auto visualize_type = i < objects_position_.size() ? visualization_msgs::Marker::CUBE : visualization_msgs::Marker::TEXT_VIEW_FACING;
         marker_obj.header.frame_id = COORD_FRAME_WORLD;
         marker_obj.header.stamp = ros::Time();
-        marker_obj.ns = "RVIZ_MARKER_NS_OBJECT";
+        marker_obj.ns = RVIZ_MARKER_NS_OBJECT;
         marker_obj.id = i;
         marker_obj.action = visualization_msgs::Marker::ADD;
         marker_obj.pose.position.x = obj.position_.x; //m
