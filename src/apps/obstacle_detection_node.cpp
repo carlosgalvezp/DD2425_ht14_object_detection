@@ -16,28 +16,41 @@
 
 #include <pcl/filters/passthrough.h>
 #include <pcl/common/transforms.h>
+#include <pcl_ros/point_cloud.h>
 
 #define START_DELAY 25  //  [frames] Wait this delay before we process images, so that the camera can adjust its brightness
 #define SCALE_FACTOR 0.5
 
 #define ROBOT_WIDTH 0.23 // [m]
 
+#define MIN_DEPTH   0.2 // [m]
 #define MAX_DEPTH   0.5 // [m]
-#define RESOLUTION  0.005 // [m]
+#define RESOLUTION  0.01 // [m]
 
 class Obstacle_Detection : rob::BasicNode
 {
+struct Line_Segment
+{
+    geometry_msgs::Point from_, to_;
+    bool is_wall_;
+
+    Line_Segment(const geometry_msgs::Point &from,
+                 const geometry_msgs::Point &to,
+                 bool is_wall)
+        : from_(from), to_(to), is_wall_(is_wall){}
+};
+
 public:
     Obstacle_Detection();
 
 private:
     void adcCallback(const ras_arduino_msgs::ADConverterConstPtr &msg);
     void depthCallback(const sensor_msgs::Image::ConstPtr &img);
-    void extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cloud_in, std::vector<double> &distances);
+    void extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cloud_in, std::vector<Line_Segment> &distances);
     double getLineDepth(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &line_cloud);
 
     int frame_counter_;
-    ros::Publisher obstacle_pub_;
+    ros::Publisher obstacle_pub_, pcl_pub_;
     ros::Subscriber depth_sub_, adc_sub_;
     tf::TransformListener tf_listener_;
     double front_sensor_distance_; // [m]
@@ -65,13 +78,15 @@ Obstacle_Detection::Obstacle_Detection()
 {
     depth_sub_ = n.subscribe(TOPIC_CAMERA_DEPTH, 2, &Obstacle_Detection::depthCallback, this);
     adc_sub_   = n.subscribe(TOPIC_ARDUINO_ADC, 2, &Obstacle_Detection::adcCallback, this);
+
+    pcl_pub_ = n.advertise<pcl::PointCloud<pcl::PointXYZ> >("/obstacle_detection/cloud", 2);
 }
 
 void Obstacle_Detection::depthCallback(const sensor_msgs::Image::ConstPtr &img)
 {
     tf::Transform tf_cam_to_robot;
     if(frame_counter_ > START_DELAY && front_sensor_distance_ > MAX_DEPTH
-       && PCL_Utils::readTransform(COORD_FRAME_CAMERA_LINK, COORD_FRAME_ROBOT, tf_listener_, tf_cam_to_robot))
+       && PCL_Utils::readTransform(COORD_FRAME_ROBOT, COORD_FRAME_CAMERA_RGB_OPTICAL, tf_listener_, tf_cam_to_robot))
     {
         // ** Convert ROS messages to OpenCV images and scale
         cv_bridge::CvImageConstPtr depth_ptr   = cv_bridge::toCvShare(img);
@@ -88,7 +103,7 @@ void Obstacle_Detection::depthCallback(const sensor_msgs::Image::ConstPtr &img)
         pcl::transformPointCloud(*cloud, *cloud, eigen_cam_to_robot);
 
         // ** Extract obstacles
-        std::vector<double> distances;
+        std::vector<Line_Segment> distances;
         extractObstacles(cloud, distances);
 
         // ** Publish
@@ -97,7 +112,7 @@ void Obstacle_Detection::depthCallback(const sensor_msgs::Image::ConstPtr &img)
 }
 
 void Obstacle_Detection::extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cloud_in,
-                                          std::vector<double> &distances)
+                                          std::vector<Line_Segment> &distances)
 {
     // ** Pass-through filter
     pcl::PassThrough<pcl::PointXYZ> pass;
@@ -113,6 +128,10 @@ void Obstacle_Detection::extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::
     pass.setFilterLimits (-ROBOT_WIDTH/2.0, ROBOT_WIDTH/2.0);
     pass.filter (*cloud_filtered);
 
+    pass.setInputCloud (cloud_filtered);
+    pass.setFilterFieldName ("x");
+    pass.setFilterLimits (MIN_DEPTH, MAX_DEPTH);
+    pass.filter (*cloud_filtered);
 
     // ** Analize each line
     for(double i = -ROBOT_WIDTH/2.0; i < ROBOT_WIDTH/2.0; i+=RESOLUTION)
@@ -125,13 +144,17 @@ void Obstacle_Detection::extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::
         pass.filter (*line);
 
         double d = getLineDepth(line);
-        distances.push_back(d);
+        geometry_msgs::Point from, to;
+        from.x = MIN_DEPTH; from.y = i; from.z = 0;
+        to.x   = d;         to.y   = i; to.z   = 0;
+        Line_Segment l(from, to, d < MAX_DEPTH);
+        distances.push_back(l);
     }
 }
 
 double Obstacle_Detection::getLineDepth(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &line_cloud)
 {
-    if(line_cloud->size() != 0)
+    if(line_cloud->size() != 0) // There's points in the line
     {
         double min_d = MAX_DEPTH;
         for(std::size_t i = 0; i < line_cloud->size(); ++i)
