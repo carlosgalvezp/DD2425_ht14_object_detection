@@ -15,6 +15,7 @@ find_package(catkin REQUIRED COMPONENTS
   cv_bridge
   dynamic_reconfigure
   tf
+  tf_conversions
 )
 
 #add dynamic reconfigure api
@@ -144,10 +145,16 @@ link_libraries(${PCL_LIBRARIES})
 
 # Sources
 file (GLOB_RECURSE HEADERS include/${PROJECT_NAME}/*.h)
+file (GLOB SOURCES src/*.cpp)
 
 ## Declare a cpp executable
-add_executable(${PROJECT_NAME} src/object_detection_node.cpp src/object_detection.cpp ${HEADERS})
-add_executable(test_marker_placement src/apps/test_marker_placement.cpp ${HEADERS})
+add_library(object_detection_lib ${SOURCES} ${HEADERS})
+
+add_executable(${PROJECT_NAME} src/apps/object_detection_node.cpp)
+add_executable(obstacle_detection src/apps/obstacle_detection_node.cpp)
+add_executable(tf_cam_robot src/apps/tf_cam_robot_node.cpp)
+add_executable(test_marker_placement src/apps/test_marker_placement.cpp)
+add_executable(hsv_tuning src/apps/hsv_tuning.cpp)
 
 # make sure configure headers are built before any node using them
 add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_gencfg)
@@ -157,8 +164,13 @@ add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_gencfg)
 # add_dependencies(object_detection_node object_detection_generate_messages_cpp)
 
 ## Specify libraries to link a library or executable target against
-target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
-target_link_libraries(test_marker_placement ${catkin_LIBRARIES})
+target_link_libraries(object_detection_lib ${catkin_LIBRARIES} ${OpenCV_LIBRARIES} ${PCL_LIBRARIES})
+
+target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} object_detection_lib)
+target_link_libraries(test_marker_placement ${catkin_LIBRARIES} object_detection_lib)
+target_link_libraries(hsv_tuning ${catkin_LIBRARIES} object_detection_lib)
+target_link_libraries(obstacle_detection ${catkin_LIBRARIES} object_detection_lib)
+target_link_libraries(tf_cam_robot ${catkin_LIBRARIES} object_detection_lib)
 
 #############
 ## Install ##
