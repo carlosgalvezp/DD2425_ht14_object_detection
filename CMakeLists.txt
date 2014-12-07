@@ -157,7 +157,7 @@ add_executable(test_marker_placement src/apps/test_marker_placement.cpp)
 add_executable(hsv_tuning src/apps/hsv_tuning.cpp)
 
 # make sure configure headers are built before any node using them
-add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_gencfg)
+add_dependencies(hsv_tuning ${PROJECT_NAME}_gencfg)
 
 ## Add cmake target dependencies of the executable/library
 ## as an example, message headers may need to be generated before nodes
