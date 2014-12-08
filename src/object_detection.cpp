@@ -62,11 +62,10 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
             // ** Update the map
             objects_position_.push_back(Object(object_position_world_frame, object_id));
 
-            // ** Publish evidence, object (to the map) and obstacle detection
+            // ** Publish evidence, markers on the map and add robot position for global path planning
             publish_evidence(object_id, rgb_img);
             publish_markers();
-            publish_robot_position();
-            publish_object(object_id, object_position_world_frame);
+            add_robot_position();
         }
     }
     else
@@ -187,13 +186,13 @@ void Object_Detection::publish_object(const std::string &id, const pcl::PointXY 
     ROS_ERROR("TO DO");
 }
 
-void Object_Detection::publish_robot_position()
+void Object_Detection::add_robot_position()
 {
     geometry_msgs::Point position;
     position.x = t_robot_to_world_(0,3);
     position.y = t_robot_to_world_(1,3);
 
-    robot_position_pub_.publish(position);
+    robot_positions_.push_back(position);
 }
 
 bool Object_Detection::is_new_object(const pcl::PointXY &position)
@@ -209,15 +208,15 @@ bool Object_Detection::is_new_object(const pcl::PointXY &position)
     return true;
 }
 
-void Object_Detection::saveObjectsPosition(const std::string &path)
+void Object_Detection::saveRobotPositions(const std::string &path)
 {
-    std::ofstream file;
-    file.open(path);
-    file << objects_position_.size()<<std::endl;
-    for(std::size_t i = 0; i < objects_position_.size(); ++i)
+    std::ofstream file(path);
+
+    file << robot_positions_.size()<<std::endl;
+    for(std::size_t i = 0; i < robot_positions_.size(); ++i)
     {
-        const Object &obj = objects_position_[i];
-        file << obj.position_.x << " "<<obj.position_.y<<std::endl;
+        const geometry_msgs::Point &obj = robot_positions_[i];
+        file << obj.x << " "<<obj.y<<std::endl;
     }
     file.close();
 }

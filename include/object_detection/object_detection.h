@@ -19,6 +19,7 @@
 #include <sensor_msgs/PointCloud2.h>
 #include "sensor_msgs/Imu.h"
 #include <geometry_msgs/Pose2D.h>
+#include <geometry_msgs/Point.h>
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <tf/transform_listener.h>
@@ -86,7 +87,7 @@ public:
 
     void RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
                                          const sensor_msgs::ImageConstPtr &depth_msg);   
-    void saveObjectsPosition(const string &path);
+    void saveRobotPositions(const string &path);
 private:
     message_filters::Subscriber<sensor_msgs::Image> rgb_sub_;
     message_filters::Subscriber<sensor_msgs::Image> depth_sub_;
@@ -106,6 +107,8 @@ private:
     Object_Recognition object_recognition_;
 
     std::vector<Object> objects_position_;
+    std::vector<geometry_msgs::Point> robot_positions_;
+
     HSV_Filter hsv_filter_;
 
     std::vector<std::string> classifications_;
@@ -122,7 +125,7 @@ private:
     void publish_evidence(const std::string &object_id,
                           const cv::Mat &image);
     void publish_object(const std::string &id, const pcl::PointXY &position);
-    void publish_robot_position();
+    void add_robot_position();
     void publish_markers();
 
     double estimateDepth(const cv::Mat &depth_img, cv::Point mass_center);
