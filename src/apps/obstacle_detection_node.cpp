@@ -13,6 +13,9 @@
 #include <ras_utils/pcl_utils.h>
 #include <ras_utils/ras_sensor_utils.h>
 
+#include <ras_srv_msgs/LaserLine.h>
+#include <ras_srv_msgs/LaserScanner.h>
+
 #include <Eigen/Core>
 
 #include <pcl/filters/passthrough.h>
@@ -56,7 +59,7 @@ private:
     void publishLines(const std::vector<Line_Segment> &lines);
 
     int frame_counter_;
-    ros::Publisher obstacle_pub_, pcl_pub_;
+    ros::Publisher obstacle_pub_, pcl_pub_, map_pub_;
     ros::Subscriber depth_sub_, adc_sub_;
     tf::TransformListener tf_listener_;
     double front_sensor_distance_; // [m]
@@ -87,6 +90,7 @@ Obstacle_Detection::Obstacle_Detection()
 
     pcl_pub_ = n.advertise<pcl::PointCloud<pcl::PointXYZ> >("/obstacle_detection/cloud", 2);
     obstacle_pub_ = n.advertise<visualization_msgs::MarkerArray>("/laser_scanner",2);
+    map_pub_ = n.advertise<ras_srv_msgs::LaserScanner>(TOPIC_OBSTACLE_LASER_MAP,2);
 }
 
 void Obstacle_Detection::depthCallback(const sensor_msgs::Image::ConstPtr &img)
@@ -200,7 +204,9 @@ double Obstacle_Detection::getLineDepth(const pcl::PointCloud<pcl::PointXYZ>::Co
 void Obstacle_Detection::publishLines(const std::vector<Line_Segment> &lines)
 {   
     visualization_msgs::MarkerArray msg;
+    ras_srv_msgs::LaserScanner map_msg;
     msg.markers.resize(lines.size());
+    map_msg.scan.resize(lines.size());
 
     for(std::size_t i = 0; i < lines.size(); ++i)
     {
@@ -225,8 +231,15 @@ void Obstacle_Detection::publishLines(const std::vector<Line_Segment> &lines)
         m.color.g = 1.0 - m.color.r;
         m.color.b = 0.0;
         m.type = visualization_msgs::Marker::LINE_STRIP;
+
+        // ** Fill in data for map
+        ras_srv_msgs::LaserLine &laser_line = map_msg.scan[i];
+        laser_line.from = l.from_;
+        laser_line.to = l.to_;
+        laser_line.is_wall = l.is_wall_;
     }
     obstacle_pub_.publish(msg);
+    map_pub_.publish(map_msg);
 }
 
 void Obstacle_Detection::adcCallback(const ras_arduino_msgs::ADConverterConstPtr &msg)

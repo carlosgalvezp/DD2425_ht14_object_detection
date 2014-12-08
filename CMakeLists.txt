@@ -11,6 +11,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   std_msgs
+  ras_srv_msgs
   image_transport
   cv_bridge
   dynamic_reconfigure
