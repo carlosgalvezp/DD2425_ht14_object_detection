@@ -97,7 +97,7 @@ void Obstacle_Detection::depthCallback(const sensor_msgs::Image::ConstPtr &img)
 {
     ros::WallTime t1(ros::WallTime::now());
     tf::Transform tf_cam_to_robot, tf_robot_to_world;
-    front_sensor_distance_ = 100.0;
+
     if(frame_counter_ > START_DELAY && front_sensor_distance_ > MAX_DEPTH
        && PCL_Utils::readTransform(COORD_FRAME_ROBOT, COORD_FRAME_CAMERA_RGB_OPTICAL, tf_listener_, tf_cam_to_robot)
        && PCL_Utils::readTransform(COORD_FRAME_WORLD, COORD_FRAME_ROBOT, tf_listener_, tf_robot_to_world))
@@ -110,12 +110,12 @@ void Obstacle_Detection::depthCallback(const sensor_msgs::Image::ConstPtr &img)
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
         PCL_Utils::buildPointCloud(depth_img, cloud, SCALE_FACTOR);
 
+        // ** Transform point cloud
         Eigen::Matrix4f eigen_cam_to_robot;
         PCL_Utils::convertTransformToEigen4x4(tf_cam_to_robot, eigen_cam_to_robot);
         pcl::transformPointCloud(*cloud, *cloud, eigen_cam_to_robot);
         cloud->header.frame_id = COORD_FRAME_WORLD;
         pcl_pub_.publish(cloud);
-        // ** Transform point cloud
 
         // ** Extract obstacles
         std::vector<Line_Segment> distances;
@@ -156,8 +156,8 @@ void Obstacle_Detection::extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::
     pass.setFilterLimits (MIN_DEPTH, MAX_DEPTH);
     pass.filter (*cloud_filtered);
 
-    double x_robot = tf_robot_to_world.getOrigin()[0];
-    double y_robot = tf_robot_to_world.getOrigin()[1];
+    Eigen::Matrix4f tf_eigen;
+    PCL_Utils::convertTransformToEigen4x4(tf_robot_to_world, tf_eigen);
 
     // ** Analize each line
     for(double i = -ROBOT_WIDTH/2.0; i < ROBOT_WIDTH/2.0; i+=RESOLUTION)
@@ -173,9 +173,15 @@ void Obstacle_Detection::extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::
         geometry_msgs::Point from, to;
         from.x = MIN_DEPTH; from.y = i; from.z = 0.02;
         to.x   = d;         to.y   = i; to.z   = 0.02;
+
         // ** Transform into world frame
-        from.x += x_robot;  from.y += y_robot;
-        to.x += x_robot;    to.y += y_robot;
+        pcl::PointXYZ from3d(from.x, from.y, from.z);
+        pcl::PointXYZ to3d(to.x, to.y, to.z);
+        PCL_Utils::transformPoint(from3d, tf_eigen, from3d);
+        PCL_Utils::transformPoint(to3d, tf_eigen, to3d);
+
+        from.x = from3d.x;        from.y = from3d.y;
+        to.x = to3d.x;            to.y = to3d.y;
         Line_Segment l(from, to, d < MAX_DEPTH);
         distances.push_back(l);
     }

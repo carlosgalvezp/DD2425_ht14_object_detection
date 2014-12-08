@@ -250,7 +250,6 @@ void Object_Detection::publish_markers()
         Object & obj = objects_position_[i%objects_position_.size()];
 
         double z = i < objects_position_.size() ? 0 : 0.1;
-        auto visualize_type = i < objects_position_.size() ? visualization_msgs::Marker::CUBE : visualization_msgs::Marker::TEXT_VIEW_FACING;
         marker_obj.header.frame_id = COORD_FRAME_WORLD;
         marker_obj.header.stamp = ros::Time();
         marker_obj.ns = RVIZ_MARKER_NS_OBJECT;
@@ -271,7 +270,10 @@ void Object_Detection::publish_markers()
         marker_obj.color.r = i >= objects_position_.size();
         marker_obj.color.g = i < objects_position_.size();
         marker_obj.color.b = 0.0;
-        marker_obj.type = visualize_type;
+        if (i < objects_position_.size())
+            marker_obj.type = visualization_msgs::Marker::CUBE;
+        else
+            marker_obj.type = visualization_msgs::Marker::TEXT_VIEW_FACING;
         marker_obj.text = obj.id_;
 
     }
