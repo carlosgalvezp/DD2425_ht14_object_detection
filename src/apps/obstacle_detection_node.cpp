@@ -97,7 +97,7 @@ void Obstacle_Detection::depthCallback(const sensor_msgs::Image::ConstPtr &img)
 {
     ros::WallTime t1(ros::WallTime::now());
     tf::Transform tf_cam_to_robot, tf_robot_to_world;
-    front_sensor_distance_ = 100.0;
+
     if(frame_counter_ > START_DELAY && front_sensor_distance_ > MAX_DEPTH
        && PCL_Utils::readTransform(COORD_FRAME_ROBOT, COORD_FRAME_CAMERA_RGB_OPTICAL, tf_listener_, tf_cam_to_robot)
        && PCL_Utils::readTransform(COORD_FRAME_WORLD, COORD_FRAME_ROBOT, tf_listener_, tf_robot_to_world))
@@ -110,12 +110,12 @@ void Obstacle_Detection::depthCallback(const sensor_msgs::Image::ConstPtr &img)
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
         PCL_Utils::buildPointCloud(depth_img, cloud, SCALE_FACTOR);
 
+        // ** Transform point cloud
         Eigen::Matrix4f eigen_cam_to_robot;
         PCL_Utils::convertTransformToEigen4x4(tf_cam_to_robot, eigen_cam_to_robot);
         pcl::transformPointCloud(*cloud, *cloud, eigen_cam_to_robot);
         cloud->header.frame_id = COORD_FRAME_WORLD;
         pcl_pub_.publish(cloud);
-        // ** Transform point cloud
 
         // ** Extract obstacles
         std::vector<Line_Segment> distances;
@@ -158,6 +158,10 @@ void Obstacle_Detection::extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::
 
     double x_robot = tf_robot_to_world.getOrigin()[0];
     double y_robot = tf_robot_to_world.getOrigin()[1];
+    double theta_robot, pitch, roll;
+
+    tf::Matrix3x3 rot(tf_robot_to_world.getRotation());
+    rot.getRPY(roll, pitch, theta_robot);
 
     // ** Analize each line
     for(double i = -ROBOT_WIDTH/2.0; i < ROBOT_WIDTH/2.0; i+=RESOLUTION)
@@ -174,8 +178,10 @@ void Obstacle_Detection::extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::
         from.x = MIN_DEPTH; from.y = i; from.z = 0.02;
         to.x   = d;         to.y   = i; to.z   = 0.02;
         // ** Transform into world frame
-        from.x += x_robot;  from.y += y_robot;
-        to.x += x_robot;    to.y += y_robot;
+        from.x = cos(theta_robot)*from.x + sin(theta_robot)*from.y + x_robot;
+        from.y =-sin(theta_robot)*from.x + cos(theta_robot)*from.y + y_robot;
+        to.x = cos(theta_robot)*to.x + sin(theta_robot)*to.y + x_robot;
+        to.y =-sin(theta_robot)*to.x + cos(theta_robot)*to.y + y_robot;
         Line_Segment l(from, to, d < MAX_DEPTH);
         distances.push_back(l);
     }
