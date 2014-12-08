@@ -28,7 +28,7 @@
 #define ROBOT_WIDTH 0.23 // [m]
 
 #define MIN_DEPTH   0.2 // [m]
-#define MAX_DEPTH   0.5 // [m]
+#define MAX_DEPTH   0.3 // [m]
 #define RESOLUTION  0.005 // [m]
 
 
