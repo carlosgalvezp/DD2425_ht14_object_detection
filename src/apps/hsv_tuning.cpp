@@ -62,7 +62,7 @@ int main(int argc, char *argv[])
 
     std::string path;
     int option = atoi(argv[1]);
-    if(option)
+    if(option == 0)
         path = RAS_Names::HSV_PARAMS_LAB;
     else
         path = RAS_Names::HSV_PARAMS_CONTEST;

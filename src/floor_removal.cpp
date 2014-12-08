@@ -4,7 +4,7 @@ Floor_Removal::Floor_Removal()
 {
 }
 
-void Floor_Removal::getFloorMask(const cv::Mat &bgr_img,
+void Floor_Removal::remove_floor(const cv::Mat &bgr_img,
                                  const cv::Mat &depth_img,
                                  double scale_factor,
                                  const Eigen::Matrix4f &t_cam_to_robot,
@@ -32,20 +32,30 @@ void Floor_Removal::get_floor_plane(const pcl::PointCloud<pcl::PointXYZRGB>::Con
 {
     // Remove floor and most of the walls
     pcl::PassThrough<pcl::PointXYZRGB> pass;
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_1 (new pcl::PointCloud<pcl::PointXYZRGB>);
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_2 (new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud1 (new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud2 (new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud3 (new pcl::PointCloud<pcl::PointXYZRGB>);
 
     pass.setInputCloud (cloud_in);
     pass.setFilterFieldName ("z");
-    pass.setFilterLimits (-10.0, 0.015);
-    pass.filter (*cloud_1);
+    pass.setFilterLimits (0.005, 0.05);
+    pass.setFilterLimitsNegative(true);
+    pass.filter (*cloud1);
 
     pass.setInputCloud (cloud_in);
     pass.setFilterFieldName ("z");
-    pass.setFilterLimits (0.05, 10.0);
-    pass.filter (*cloud_2);
+    pass.setFilterLimits (0.005, 0.05);
+    pass.filter (*cloud2);
 
-    *cloud_out = *cloud_1 + *cloud_2;
+    pass.setInputCloud (cloud2);
+    pass.setFilterFieldName ("y");
+    pass.setFilterLimits (-ROBOT_WIDTH/2.0, ROBOT_WIDTH/2.0);
+    pass.setFilterLimitsNegative(true);
+    pass.filter (*cloud3);
+
+    *cloud1 += *cloud3;
+
+    *cloud_out = *cloud1;
 }
 
 void Floor_Removal::backproject_floor(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr &floor_cloud,
@@ -53,6 +63,7 @@ void Floor_Removal::backproject_floor(const pcl::PointCloud<pcl::PointXYZRGB>::C
                                             cv::Mat &floor_mask)
 {
     floor_mask = 255 * cv::Mat::ones(IMG_ROWS, IMG_COLS, CV_8UC1);
+
     // ** Transform into camera coordinate frame
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr floor_cloud2(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::transformPointCloud(*floor_cloud, *floor_cloud2, t_robot_to_cam);

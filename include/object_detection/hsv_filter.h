@@ -8,6 +8,7 @@
 
 #include <vector>
 #include <fstream>
+#include <iostream>
 
 class HSV_Filter
 {

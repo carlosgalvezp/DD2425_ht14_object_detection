@@ -29,7 +29,7 @@ Object_Detection::Object_Detection()
     n.getParam(PARAM_CONTEST, this->contest_);
 
     // ** HSV params
-    if(this->contest_)
+    if(this->contest_ == 1)
         this->hsv_filter_ = HSV_Filter(RAS_Names::HSV_PARAMS_CONTEST);
     else
         this->hsv_filter_ = HSV_Filter(RAS_Names::HSV_PARAMS_LAB);
@@ -56,18 +56,18 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         pcl::PointXY object_position_world_frame;
         bool foundObject = detectObject(rgb_img, depth_img, object_id, object_position_world_frame);
 
-//        // ** Publish evidence if found object
-//        if(foundObject)
-//        {
-//            // ** Update the map
-//            objects_position_.push_back(Object(object_position_world_frame, object_id));
+        // ** Publish evidence if found object
+        if(foundObject)
+        {
+            // ** Update the map
+            objects_position_.push_back(Object(object_position_world_frame, object_id));
 
-//            // ** Publish evidence, object (to the map) and obstacle detection
-//            publish_evidence(object_id, rgb_img);
-//            publish_markers();
-//            publish_robot_position();
-//            publish_object(object_id, object_position_world_frame);
-//        }
+            // ** Publish evidence, object (to the map) and obstacle detection
+            publish_evidence(object_id, rgb_img);
+            publish_markers();
+            publish_robot_position();
+            publish_object(object_id, object_position_world_frame);
+        }
     }
     else
         frame_counter_++;
@@ -79,11 +79,9 @@ bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth
 {
     // ** Remove floor and use ROI
     Floor_Removal floor_removal;    cv::Mat floor_mask;
-    floor_removal.getFloorMask(bgr_img, depth_img, SCALE_FACTOR, this->t_cam_to_robot_, this->t_robot_to_cam_,
+    floor_removal.remove_floor(bgr_img, depth_img, SCALE_FACTOR, this->t_cam_to_robot_, this->t_robot_to_cam_,
                                this->pcl_pub_, floor_mask);
     cv::bitwise_and(floor_mask, this->ROI_, floor_mask);
-    cv::imshow("Non-floor mask", floor_mask);
-    cv::waitKey(1);
 
     Color_Object_Detection color_detection(this->hsv_filter_);
     cv::Mat object_mask; cv::Point mass_center;
@@ -93,40 +91,44 @@ bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth
     cv::waitKey(1);
 
     // ** Get 3D position of the object
-    pcl::PointXYZ object_position_robot_frame, object_position_cam_frame;
-    double depth = estimateDepth(depth_img, mass_center);
-    PCL_Utils::transform2Dto3D(mass_center, depth, object_position_cam_frame);
-    PCL_Utils::transformPoint(object_position_cam_frame, t_cam_to_robot_, object_position_robot_frame);
-
-    std::cout << "Distance to robot: "<<object_position_robot_frame.x
-              <<"; MAX: "<< D_OBJECT_DETECTION_MAX
-              <<"; MIN: "<< D_OBJECT_DETECTION_MIN<<std::endl;
-
-    // ** Call the recognition node if object found
-    if (color >= 0 && object_position_robot_frame.x < D_OBJECT_DETECTION_MAX &&
-            (object_position_robot_frame.x > D_OBJECT_DETECTION_MIN || classifications_.size() != 0))
+    if(color >=0)
     {
+        pcl::PointXYZ object_position_robot_frame, object_position_cam_frame;
+        double depth = estimateDepth(depth_img, mass_center);
+        PCL_Utils::transform2Dto3D(mass_center, depth, object_position_cam_frame);
+        PCL_Utils::transformPoint(object_position_cam_frame, t_cam_to_robot_, object_position_robot_frame);
 
-        // ** Transform into world frame and see if we have seen this before
-        pcl::PointXYZ tmp_object_position_world_frame;
-        PCL_Utils::transformPoint(object_position_robot_frame, t_robot_to_world_, tmp_object_position_world_frame);
-        object_position_world_frame.x = tmp_object_position_world_frame.x;
-        object_position_world_frame.y = tmp_object_position_world_frame.y;
+        std::cout << "Distance to robot: "<<object_position_robot_frame.x
+                  <<"; MAX: "<< D_OBJECT_DETECTION_MAX
+                  <<"; MIN: "<< D_OBJECT_DETECTION_MIN<<std::endl;
 
-        // ** Call recognition if it's a new object
-        if(is_new_object(object_position_world_frame))
+
+        // ** Call the recognition node if object found
+        if ( object_position_robot_frame.x < D_OBJECT_DETECTION_MAX &&
+            (object_position_robot_frame.x > D_OBJECT_DETECTION_MIN || classifications_.size() != 0))
         {
-            std::string tmp_classification;
 
-            object_recognition_.classify(bgr_img, depth_img, object_mask, t_cam_to_robot_, tmp_classification);
-            classifications_.push_back(tmp_classification);
+            // ** Transform into world frame and see if we have seen this before
+            pcl::PointXYZ tmp_object_position_world_frame;
+            PCL_Utils::transformPoint(object_position_robot_frame, t_robot_to_world_, tmp_object_position_world_frame);
+            object_position_world_frame.x = tmp_object_position_world_frame.x;
+            object_position_world_frame.y = tmp_object_position_world_frame.y;
 
-            // ** Get the msot likely result when we are now too close to the object
-            if(object_position_robot_frame.x < D_OBJECT_DETECTION_MIN)
+            // ** Call recognition if it's a new object
+            if(is_new_object(object_position_world_frame))
             {
-                object_id = RAS_Utils::get_most_repeated<std::string>(classifications_);
-                classifications_.clear();
-                return true;
+                std::string tmp_classification;
+
+                object_recognition_.classify(bgr_img, depth_img, object_mask, t_cam_to_robot_, tmp_classification);
+                classifications_.push_back(tmp_classification);
+
+                // ** Get the msot likely result when we are now too close to the object
+                if(object_position_robot_frame.x < D_OBJECT_DETECTION_MIN || classifications_.size() > N_MAX_CLASSIFICATIONS)
+                {
+                    object_id = RAS_Utils::get_most_repeated<std::string>(classifications_);
+                    classifications_.clear();
+                    return true;
+                }
             }
         }
     }

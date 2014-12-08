@@ -6,6 +6,7 @@ HSV_Filter::HSV_Filter()
 
 HSV_Filter::HSV_Filter(const std::string &hsv_params_path)
 {
+    std::cout << "HSV FILTER "<<hsv_params_path<<std::endl;
     this->readHSVParams(hsv_params_path, this->hsv_params_);
 }
 

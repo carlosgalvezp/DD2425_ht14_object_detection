@@ -10,13 +10,14 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include <Eigen/Core>
 
+#define ROBOT_WIDTH             0.23                      // [m] Robot width
 
 class Floor_Removal
 {
 public:
     Floor_Removal();
 
-    void getFloorMask(const cv::Mat& bgr_img,
+    void remove_floor(const cv::Mat& bgr_img,
                       const cv::Mat &depth_img, double scale_factor,
                       const Eigen::Matrix4f &t_cam_to_robot , const Eigen::Matrix4f &t_robot_to_cam, const ros::Publisher &cloud_pub, cv::Mat &floor_mask);
 
