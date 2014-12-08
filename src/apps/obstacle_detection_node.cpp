@@ -156,12 +156,8 @@ void Obstacle_Detection::extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::
     pass.setFilterLimits (MIN_DEPTH, MAX_DEPTH);
     pass.filter (*cloud_filtered);
 
-    double x_robot = tf_robot_to_world.getOrigin()[0];
-    double y_robot = tf_robot_to_world.getOrigin()[1];
-    double theta_robot, pitch, roll;
-
-    tf::Matrix3x3 rot(tf_robot_to_world.getRotation());
-    rot.getRPY(roll, pitch, theta_robot);
+    Eigen::Matrix4f tf_eigen;
+    PCL_Utils::convertTransformToEigen4x4(tf_robot_to_world, tf_eigen);
 
     // ** Analize each line
     for(double i = -ROBOT_WIDTH/2.0; i < ROBOT_WIDTH/2.0; i+=RESOLUTION)
@@ -177,11 +173,15 @@ void Obstacle_Detection::extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::
         geometry_msgs::Point from, to;
         from.x = MIN_DEPTH; from.y = i; from.z = 0.02;
         to.x   = d;         to.y   = i; to.z   = 0.02;
+
         // ** Transform into world frame
-        from.x = cos(theta_robot)*from.x + sin(theta_robot)*from.y + x_robot;
-        from.y =-sin(theta_robot)*from.x + cos(theta_robot)*from.y + y_robot;
-        to.x = cos(theta_robot)*to.x + sin(theta_robot)*to.y + x_robot;
-        to.y =-sin(theta_robot)*to.x + cos(theta_robot)*to.y + y_robot;
+        pcl::PointXYZ from3d(from.x, from.y, from.z);
+        pcl::PointXYZ to3d(to.x, to.y, to.z);
+        PCL_Utils::transformPoint(from3d, tf_eigen, from3d);
+        PCL_Utils::transformPoint(to3d, tf_eigen, to3d);
+
+        from.x = from3d.x;        from.y = from3d.y;
+        to.x = to3d.x;            to.y = to3d.y;
         Line_Segment l(from, to, d < MAX_DEPTH);
         distances.push_back(l);
     }
