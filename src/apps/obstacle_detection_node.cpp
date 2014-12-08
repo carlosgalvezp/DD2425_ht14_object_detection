@@ -4,6 +4,7 @@
 #include <tf_conversions/tf_eigen.h>
 #include <cv_bridge/cv_bridge.h>
 
+#include <visualization_msgs/MarkerArray.h>
 #include <ras_arduino_msgs/ADConverter.h>
 
 #include <ras_utils/basic_node.h>
@@ -27,6 +28,10 @@
 #define MAX_DEPTH   0.5 // [m]
 #define RESOLUTION  0.01 // [m]
 
+#define MAP_WIDTH  1000
+#define MAP_HEIGHT 1000
+#define MAP_RESOLUTION 0.01
+
 class Obstacle_Detection : rob::BasicNode
 {
 struct Line_Segment
@@ -48,6 +53,8 @@ private:
     void depthCallback(const sensor_msgs::Image::ConstPtr &img);
     void extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cloud_in, std::vector<Line_Segment> &distances);
     double getLineDepth(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &line_cloud);
+
+    void publishLines(const std::vector<Line_Segment> &lines);
 
     int frame_counter_;
     ros::Publisher obstacle_pub_, pcl_pub_;
@@ -80,6 +87,7 @@ Obstacle_Detection::Obstacle_Detection()
     adc_sub_   = n.subscribe(TOPIC_ARDUINO_ADC, 2, &Obstacle_Detection::adcCallback, this);
 
     pcl_pub_ = n.advertise<pcl::PointCloud<pcl::PointXYZ> >("/obstacle_detection/cloud", 2);
+    obstacle_pub_ = n.advertise<visualization_msgs::MarkerArray>("/laser_scanner",2);
 }
 
 void Obstacle_Detection::depthCallback(const sensor_msgs::Image::ConstPtr &img)
@@ -107,7 +115,7 @@ void Obstacle_Detection::depthCallback(const sensor_msgs::Image::ConstPtr &img)
         extractObstacles(cloud, distances);
 
         // ** Publish
-        ROS_ERROR("TO DO PUBLISH");
+        publishLines(distances);
     }
 }
 
@@ -172,8 +180,59 @@ double Obstacle_Detection::getLineDepth(const pcl::PointCloud<pcl::PointXYZ>::Co
     return MAX_DEPTH;
 }
 
+void Obstacle_Detection::publishLines(const std::vector<Line_Segment> &lines)
+{
+    // ** Get robot transform
+    tf::Transform tf_robot_to_world;
+    if(PCL_Utils::readTransform(COORD_FRAME_WORLD, COORD_FRAME_ROBOT, this->tf_listener_, tf_robot_to_world))
+    {
+        double x_robot = tf_robot_to_world.getOrigin()[0];
+        double y_robot = tf_robot_to_world.getOrigin()[1];
+
+        visualization_msgs::MarkerArray msg;
+        msg.markers.resize(lines.size());
+
+        for(std::size_t i = 0; i < lines.size(); ++i)
+        {
+            visualization_msgs::Marker &m = msg.markers[i];
+            const Line_Segment &l = lines[i];
+
+            m.header.frame_id = COORD_FRAME_WORLD;
+            m.header.stamp = ros::Time();
+            m.ns = "laser_scanner";
+            m.id = i;
+            m.action = visualization_msgs::Marker::ADD;
+
+            m.scale.x = 0.01;
+            m.scale.y = 0.01;
+            m.scale.z = 0.01;
+
+            // ** Get point and transform into world coordinate
+            geometry_msgs::Point from = l.from_;
+            from.x += x_robot;
+            from.y += y_robot;
+
+            geometry_msgs::Point to = l.to_;
+            to.x += x_robot;
+            to.y += y_robot;
+
+            m.points.push_back(from);
+            m.points.push_back(to);
+
+            m.color.a = 1.0;
+            m.color.r = l.is_wall_ ? 1.0 : 0.0;
+            m.color.g = 1.0 - m.color.r;
+            m.color.b = 0.0;
+            m.type = visualization_msgs::Marker::LINE_STRIP;
+        }
+    }
+
+}
+
 void Obstacle_Detection::adcCallback(const ras_arduino_msgs::ADConverterConstPtr &msg)
 {
     int adc = msg->ch8;
     this->front_sensor_distance_ = 0.01*RAS_Utils::sensors::longSensorToDistanceInCM(adc) + ROBOT_WIDTH/2.0;
 }
+
+
