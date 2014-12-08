@@ -12,15 +12,15 @@
  <!-- Transform publisher -->     
   <node pkg="object_detection" type="tf_cam_robot" name="tf_cam_robot_publisher" respawn="true" output="screen"/>   
 
- <!-- Object detection -->
-  <node pkg="object_detection" type="object_detection" name="object_detection" respawn="true" output="screen"/>         
+ <!-- Object detection
+  <node pkg="object_detection" type="object_detection" name="object_detection" respawn="true" output="screen"/>          -->
 
 
-<!-- Speaker node -->
- <node pkg="ras_espeak" type="espeak_node" name="speaker_node" output="log"/>
+<!-- Speaker node 
+ <node pkg="ras_espeak" type="espeak_node" name="speaker_node" output="log"/> -->
 
 
- <!-- Obstacle detection      
-  <node pkg="object_detection" type="obstacle_detection" name="obstacle_detection" respawn="true" output="screen"/>    -->
+ <!-- Obstacle detection -->
+  <node pkg="object_detection" type="obstacle_detection" name="obstacle_detection" respawn="true" output="screen"/>    
 
 </launch>
