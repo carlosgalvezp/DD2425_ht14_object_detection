@@ -29,6 +29,7 @@
 
 #define MIN_DEPTH   0.2 // [m]
 #define MAX_DEPTH   0.3 // [m]
+#define LASER_HEIGHT 0.1 // [m]
 #define RESOLUTION  0.005 // [m]
 
 
@@ -141,7 +142,7 @@ void Obstacle_Detection::extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::
 
     pass.setInputCloud (cloud_in);
     pass.setFilterFieldName ("z");
-    pass.setFilterLimits (0.01, 0.1);
+    pass.setFilterLimits (LASER_HEIGHT, LASER_HEIGHT + 0.05);
     pass.filter (*cloud_filtered);
 
 
@@ -171,8 +172,8 @@ void Obstacle_Detection::extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::
 
         double d = getLineDepth(line);
         geometry_msgs::Point from, to;
-        from.x = MIN_DEPTH; from.y = i; from.z = 0.02;
-        to.x   = d;         to.y   = i; to.z   = 0.02;
+        from.x = MIN_DEPTH; from.y = i; from.z = LASER_HEIGHT;
+        to.x   = d;         to.y   = i; to.z   = LASER_HEIGHT;
 
         // ** Transform into world frame
         pcl::PointXYZ from3d(from.x, from.y, from.z);
@@ -225,7 +226,7 @@ void Obstacle_Detection::publishLines(const std::vector<Line_Segment> &lines)
         m.id = i;
         m.action = visualization_msgs::Marker::ADD;
 
-        m.scale.x = 0.005;
+        m.scale.x = RESOLUTION;
 
         // ** Get point and transform into world coordinate
         m.points.clear();

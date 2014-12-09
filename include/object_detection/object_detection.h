@@ -52,8 +52,8 @@
 
 #define START_DELAY 25  //  [frames] Wait this delay before we process images, so that the camera can adjust its brightness
 
-#define QUEUE_SIZE 1        // A too large value can cause more delay; it is preferred to drop frames
-#define SCALE_FACTOR    0.25
+#define QUEUE_SIZE 1            // A too large value can cause more delay; it is preferred to drop frames
+#define SCALE_FACTOR    0.25    // Subsample in X and Y to speed-up the point cloud building
 
 // ** ROI (Region of Interest)
 #define ROI_MIN_U       50
@@ -69,7 +69,7 @@
 #define D_OBJECT_DETECTION_MIN  ROBOT_BORDER + 0.16       // [m] Distance at which we start trying to detect the object
 #define NEW_OBJECT_MIN_DISTANCE 0.2                       // [m] Min distance between objects
 
-#define N_MAX_CLASSIFICATIONS 1000 // Max number of classifications (avoid memory issues)
+#define N_MAX_CLASSIFICATIONS 10 // Max number of classifications (avoid memory issues)
 namespace object_detection
 {
 class Object_Detection : rob::BasicNode{
