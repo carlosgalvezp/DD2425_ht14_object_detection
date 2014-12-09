@@ -70,7 +70,7 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
     }
     else
         frame_counter_++;
-    ROS_INFO("[ObjectDetection] %.3f ms", RAS_Utils::time_diff_ms(t1, ros::WallTime::now()));
+//    ROS_INFO("[ObjectDetection] %.3f ms", RAS_Utils::time_diff_ms(t1, ros::WallTime::now()));
 }
 
 bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth_img,

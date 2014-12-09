@@ -129,7 +129,7 @@ void Obstacle_Detection::depthCallback(const sensor_msgs::Image::ConstPtr &img)
     {
         ++frame_counter_;
     }
-    ROS_INFO("[LaserScanner] %.3f ms", RAS_Utils::time_diff_ms(t1, ros::WallTime::now()));
+//    ROS_INFO("[LaserScanner] %.3f ms", RAS_Utils::time_diff_ms(t1, ros::WallTime::now()));
 }
 
 void Obstacle_Detection::extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cloud_in,
