@@ -22,15 +22,16 @@
 #include <pcl/common/transforms.h>
 #include <pcl_ros/point_cloud.h>
 
-#define START_DELAY 25  //  [frames] Wait this delay before we process images, so that the camera can adjust its brightness
-#define SCALE_FACTOR 0.5
+#define START_DELAY     25  //  [frames] Wait this delay before we process images, so that the camera can adjust its brightness
+#define SCALE_FACTOR    0.5
 
-#define ROBOT_WIDTH 0.23 // [m]
+#define ROBOT_WIDTH     0.23 // [m]
 
-#define MIN_DEPTH   0.2 // [m]
-#define MAX_DEPTH   0.3 // [m]
-#define LASER_HEIGHT 0.1 // [m]
-#define RESOLUTION  0.005 // [m]
+#define MIN_DEPTH       0.2                // [m]
+#define MAX_DEPTH       0.4                // [m]
+#define LASER_WIDTH     ROBOT_WIDTH        // [m]
+#define LASER_HEIGHT    0.05               // [m]
+#define RESOLUTION      0.005              // [m]
 
 
 class Obstacle_Detection : rob::BasicNode
@@ -99,7 +100,7 @@ void Obstacle_Detection::depthCallback(const sensor_msgs::Image::ConstPtr &img)
     ros::WallTime t1(ros::WallTime::now());
     tf::Transform tf_cam_to_robot, tf_robot_to_world;
 
-    if(frame_counter_ > START_DELAY && front_sensor_distance_ > MAX_DEPTH
+    if(frame_counter_ > START_DELAY
        && PCL_Utils::readTransform(COORD_FRAME_ROBOT, COORD_FRAME_CAMERA_RGB_OPTICAL, tf_listener_, tf_cam_to_robot)
        && PCL_Utils::readTransform(COORD_FRAME_WORLD, COORD_FRAME_ROBOT, tf_listener_, tf_robot_to_world))
     {
@@ -129,7 +130,7 @@ void Obstacle_Detection::depthCallback(const sensor_msgs::Image::ConstPtr &img)
     {
         ++frame_counter_;
     }
-    ROS_INFO("[LaserScanner] %.3f ms", RAS_Utils::time_diff_ms(t1, ros::WallTime::now()));
+//    ROS_INFO("[LaserScanner] %.3f ms", RAS_Utils::time_diff_ms(t1, ros::WallTime::now()));
 }
 
 void Obstacle_Detection::extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::ConstPtr &cloud_in,
@@ -142,13 +143,13 @@ void Obstacle_Detection::extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::
 
     pass.setInputCloud (cloud_in);
     pass.setFilterFieldName ("z");
-    pass.setFilterLimits (LASER_HEIGHT, LASER_HEIGHT + 0.05);
+    pass.setFilterLimits (LASER_HEIGHT, LASER_HEIGHT + 0.01);
     pass.filter (*cloud_filtered);
 
 
     pass.setInputCloud (cloud_filtered);
     pass.setFilterFieldName ("y");
-    pass.setFilterLimits (-ROBOT_WIDTH/2.0, ROBOT_WIDTH/2.0);
+    pass.setFilterLimits (-LASER_WIDTH/2.0, LASER_WIDTH/2.0);
     pass.filter (*cloud_filtered);
 
 
@@ -161,7 +162,7 @@ void Obstacle_Detection::extractObstacles(const pcl::PointCloud<pcl::PointXYZ>::
     PCL_Utils::convertTransformToEigen4x4(tf_robot_to_world, tf_eigen);
 
     // ** Analize each line
-    for(double i = -ROBOT_WIDTH/2.0; i < ROBOT_WIDTH/2.0; i+=RESOLUTION)
+    for(double i = -LASER_WIDTH/2.0; i < LASER_WIDTH/2.0; i+=RESOLUTION)
     {
         // ** Create line
         pcl::PointCloud<pcl::PointXYZ>::Ptr line(new pcl::PointCloud<pcl::PointXYZ>);

@@ -11,8 +11,5 @@ int main(int argc, char* argv[])
     // ** Spin
     ros::spin();
 
-    // ** Save data after Ctrl-C
-    o.saveRobotPositions(RAS_Names::OBJECT_POSITIONS_PATH);
-
     return 0;
 }

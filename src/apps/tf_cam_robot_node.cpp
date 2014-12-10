@@ -36,7 +36,7 @@ private:
 int main(int argc, char* argv[])
 {
     // ** Init node
-    ros::init(argc, argv, "obstacle_detection");
+    ros::init(argc, argv, "tf_cam_to_robot");
 
     // ** Create object recognition object
     TF_Cam_Robot o;

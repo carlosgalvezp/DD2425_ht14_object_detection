@@ -15,6 +15,8 @@ Object_Detection::Object_Detection()
 
     robot_position_pub_ = n.advertise<geometry_msgs::Point>(TOPIC_ROBOT_OBJECT_POSITION,2);
 
+    object_as_obstacle_pub_ = n.advertise<geometry_msgs::Point>(TOPIC_OBJECT_AS_OBSTACLE, 2);
+
     // ** Subscribers
     rgb_sub_.subscribe(n, TOPIC_CAMERA_RGB, QUEUE_SIZE);
     depth_sub_.subscribe(n, TOPIC_CAMERA_DEPTH, QUEUE_SIZE);
@@ -65,12 +67,13 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
             // ** Publish evidence, markers on the map and add robot position for global path planning
             publish_evidence(object_id, rgb_img);
             publish_markers();
-            add_robot_position();
+            publish_robot_position();
+            publish_object_as_obstacle(object_position_world_frame);
         }
     }
     else
         frame_counter_++;
-    ROS_INFO("[ObjectDetection] %.3f ms", RAS_Utils::time_diff_ms(t1, ros::WallTime::now()));
+//    ROS_INFO("[ObjectDetection] %.3f ms", RAS_Utils::time_diff_ms(t1, ros::WallTime::now()));
 }
 
 bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth_img,
@@ -150,6 +153,7 @@ bool Object_Detection::readTransforms()
         PCL_Utils::convertTransformToEigen4x4(tf_cam_to_robot, this->t_cam_to_robot_);
         PCL_Utils::convertTransformToEigen4x4(tf_robot_to_world, this->t_robot_to_world_);
         this->t_robot_to_cam_ = this->t_cam_to_robot_.inverse();
+        return true;
     }
     else
         return false;
@@ -181,18 +185,15 @@ void Object_Detection::publish_evidence(const std::string &object_id, const cv::
     speaker_pub_.publish(speaker_msg);
 }
 
-void Object_Detection::publish_object(const std::string &id, const pcl::PointXY &position)
-{
-    ROS_ERROR("TO DO");
-}
 
-void Object_Detection::add_robot_position()
+void Object_Detection::publish_robot_position()
 {
     geometry_msgs::Point position;
     position.x = t_robot_to_world_(0,3);
     position.y = t_robot_to_world_(1,3);
+    position.z = t_robot_to_world_(2,3);
 
-    robot_positions_.push_back(position);
+    robot_position_pub_.publish(position);
 }
 
 bool Object_Detection::is_new_object(const pcl::PointXY &position)
@@ -208,18 +209,6 @@ bool Object_Detection::is_new_object(const pcl::PointXY &position)
     return true;
 }
 
-void Object_Detection::saveRobotPositions(const std::string &path)
-{
-    std::ofstream file(path);
-
-    file << robot_positions_.size()<<std::endl;
-    for(std::size_t i = 0; i < robot_positions_.size(); ++i)
-    {
-        const geometry_msgs::Point &obj = robot_positions_[i];
-        file << obj.x << " "<<obj.y<<std::endl;
-    }
-    file.close();
-}
 
 double Object_Detection::estimateDepth(const cv::Mat &depth_img, cv::Point mass_center)
 {
@@ -237,6 +226,16 @@ double Object_Detection::estimateDepth(const cv::Mat &depth_img, cv::Point mass_
         }
     }
     return depth;
+}
+
+void Object_Detection::publish_object_as_obstacle(const pcl::PointXY &object_position_world_frame)
+{
+    geometry_msgs::Point p;
+    p.x = object_position_world_frame.x;
+    p.y = object_position_world_frame.y;
+    p.z = 0.0;
+
+
 }
 
 void Object_Detection::publish_markers()

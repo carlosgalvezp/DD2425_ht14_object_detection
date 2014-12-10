@@ -87,7 +87,6 @@ public:
 
     void RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
                                          const sensor_msgs::ImageConstPtr &depth_msg);   
-    void saveRobotPositions(const string &path);
 private:
     message_filters::Subscriber<sensor_msgs::Image> rgb_sub_;
     message_filters::Subscriber<sensor_msgs::Image> depth_sub_;
@@ -95,6 +94,7 @@ private:
 
     ros::Publisher speaker_pub_, evidence_pub_, marker_pub_, robot_position_pub_;
     ros::Publisher pcl_pub_, object_pcl_pub_;
+    ros::Publisher object_as_obstacle_pub_;
 
     int frame_counter_;
     cv::Mat ROI_;
@@ -124,10 +124,9 @@ private:
 
     void publish_evidence(const std::string &object_id,
                           const cv::Mat &image);
-    void publish_object(const std::string &id, const pcl::PointXY &position);
-    void add_robot_position();
+    void publish_robot_position();
     void publish_markers();
-
+    void publish_object_as_obstacle(const pcl::PointXY &object_position_world_frame);
     double estimateDepth(const cv::Mat &depth_img, cv::Point mass_center);
 
     bool is_new_object(const pcl::PointXY &position);
