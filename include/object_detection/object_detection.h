@@ -69,7 +69,7 @@
 #define D_OBJECT_DETECTION_MIN  ROBOT_BORDER + 0.16       // [m] Distance at which we start trying to detect the object
 #define NEW_OBJECT_MIN_DISTANCE 0.2                       // [m] Min distance between objects
 
-#define N_MAX_CLASSIFICATIONS 10 // Max number of classifications (avoid memory issues)
+#define N_MAX_CLASSIFICATIONS 20 // Max number of classifications (avoid memory issues)
 namespace object_detection
 {
 class Object_Detection : rob::BasicNode{
