@@ -126,7 +126,7 @@ private:
                           const cv::Mat &image);
     void publish_robot_position();
     void publish_markers();
-    void publish_object_as_obstacle(const pcl::PointXY &object_position_world_frame);
+    void publish_object_as_obstacle(const pcl::PointXYZ &object_position_world_frame);
     double estimateDepth(const cv::Mat &depth_img, cv::Point mass_center);
 
     bool is_new_object(const pcl::PointXY &position);
