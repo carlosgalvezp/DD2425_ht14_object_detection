@@ -242,8 +242,8 @@ void Obstacle_Detection::publishLines(const std::vector<Line_Segment> &lines)
 
         // ** Fill in data for map
         ras_srv_msgs::LaserLine &laser_line = map_msg.scan[i];
-        laser_line.from = l.from_;
-        laser_line.to = l.to_;
+        laser_line.from_ = l.from_;
+        laser_line.to_ = l.to_;
         laser_line.is_wall = l.is_wall_;
     }
     obstacle_pub_.publish(msg);
