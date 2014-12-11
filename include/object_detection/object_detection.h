@@ -65,11 +65,11 @@
 
 // Geometric parameters
 #define ROBOT_BORDER            0.115                     // [m] Distance from camera to robot front border
-#define D_OBJECT_DETECTION_MAX  ROBOT_BORDER + 0.25
-#define D_OBJECT_DETECTION_MIN  ROBOT_BORDER + 0.16       // [m] Distance at which we start trying to detect the object
+#define D_OBJECT_DETECTION_MAX  ROBOT_BORDER + 0.24
+#define D_OBJECT_DETECTION_MIN  ROBOT_BORDER + 0.12       // [m] Distance at which we start trying to detect the object
 #define NEW_OBJECT_MIN_DISTANCE 0.2                       // [m] Min distance between objects
 
-#define N_MAX_CLASSIFICATIONS 5 // Max number of classifications (avoid memory issues)
+#define N_MAX_CLASSIFICATIONS 5 // Max number of classifications
 namespace object_detection
 {
 class Object_Detection : rob::BasicNode{
@@ -126,7 +126,7 @@ private:
                           const cv::Mat &image);
     void publish_robot_position();
     void publish_markers();
-    void publish_object_as_obstacle(const pcl::PointXYZ &object_position_world_frame);
+    void publish_object_as_obstacle(const pcl::PointXY &object_position_world_frame);
     double estimateDepth(const cv::Mat &depth_img, cv::Point mass_center);
 
     bool is_new_object(const pcl::PointXY &position);

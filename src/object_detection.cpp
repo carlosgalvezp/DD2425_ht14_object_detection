@@ -88,8 +88,8 @@ bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth
     cv::Mat object_mask; cv::Point mass_center;
     int color = color_detection.detectColoredObject(bgr_img, floor_mask, object_mask, mass_center);
 
-    cv::imshow("Object mask", object_mask);
-    cv::waitKey(1);
+//    cv::imshow("Object mask", object_mask);
+//    cv::waitKey(1);
 
     // ** Get 3D position of the object
     if(color >=0)
@@ -99,9 +99,9 @@ bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth
         PCL_Utils::transform2Dto3D(mass_center, depth, object_position_cam_frame);
         PCL_Utils::transformPoint(object_position_cam_frame, t_cam_to_robot_, object_position_robot_frame);
 
-        std::cout << "Distance to robot: "<<object_position_robot_frame.x
-                  <<"; MAX: "<< D_OBJECT_DETECTION_MAX
-                  <<"; MIN: "<< D_OBJECT_DETECTION_MIN<<std::endl;
+//        std::cout << "Distance to robot: "<<object_position_robot_frame.x
+//                  <<"; MAX: "<< D_OBJECT_DETECTION_MAX
+//                  <<"; MIN: "<< D_OBJECT_DETECTION_MIN<<std::endl;
 
         // ** Transform into world frame and publish to navigation in order to go to the object (if it's new)
 
@@ -110,7 +110,8 @@ bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth
         object_position_world_frame.x = tmp_object_position_world_frame.x;
         object_position_world_frame.y = tmp_object_position_world_frame.y;
 
-        publish_object_as_obstacle(object_position_robot_frame);
+        if(object_position_robot_frame.x < 0.3)
+            publish_object_as_obstacle(object_position_world_frame);
 
         // ** Call the recognition node if object found
         if ( object_position_robot_frame.x < D_OBJECT_DETECTION_MAX &&
@@ -228,12 +229,11 @@ double Object_Detection::estimateDepth(const cv::Mat &depth_img, cv::Point mass_
     return depth;
 }
 
-void Object_Detection::publish_object_as_obstacle(const pcl::PointXYZ &object_position_world_frame)
+void Object_Detection::publish_object_as_obstacle(const pcl::PointXY &object_position_world_frame)
 {
     geometry_msgs::Point p;
     p.x = object_position_world_frame.x;
     p.y = object_position_world_frame.y;
-    p.z = 0.0;
 
     object_as_obstacle_pub_.publish(p);
 }
