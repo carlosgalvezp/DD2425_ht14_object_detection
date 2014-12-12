@@ -17,6 +17,7 @@
 #include <std_msgs/Bool.h>
 #include <sensor_msgs/image_encodings.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/Image.h>
 #include "sensor_msgs/Imu.h"
 #include <geometry_msgs/Pose2D.h>
 #include <geometry_msgs/Point.h>
@@ -50,14 +51,14 @@
 #include <Eigen/Core>
 #include <Eigen/LU>
 
-#define START_DELAY 25  //  [frames] Wait this delay before we process images, so that the camera can adjust its brightness
+#define START_DELAY 15  //  [frames] Wait this delay before we process images, so that the camera can adjust its brightness
 
 #define QUEUE_SIZE 1            // A too large value can cause more delay; it is preferred to drop frames
 #define SCALE_FACTOR    0.25    // Subsample in X and Y to speed-up the point cloud building
 
 // ** ROI (Region of Interest)
 #define ROI_MIN_U       50
-#define ROI_MAX_U       (IMG_COLS)- 80
+#define ROI_MAX_U       (IMG_COLS- 80)
 #define ROI_MIN_V       50
 #define ROI_MAX_V       (IMG_ROWS - 50)
 
@@ -65,8 +66,8 @@
 
 // Geometric parameters
 #define ROBOT_BORDER            0.115                     // [m] Distance from camera to robot front border
-#define D_OBJECT_DETECTION_MAX  ROBOT_BORDER + 0.24
-#define D_OBJECT_DETECTION_MIN  ROBOT_BORDER + 0.12       // [m] Distance at which we start trying to detect the object
+#define D_OBJECT_DETECTION_MAX  (ROBOT_BORDER + 0.28)
+#define D_OBJECT_DETECTION_MIN  (ROBOT_BORDER + 0.05)       // [m] Distance at which we start trying to detect the object
 #define NEW_OBJECT_MIN_DISTANCE 0.2                       // [m] Min distance between objects
 
 #define N_MAX_CLASSIFICATIONS 5 // Max number of classifications
@@ -95,6 +96,7 @@ private:
     ros::Publisher speaker_pub_, evidence_pub_, marker_pub_, robot_position_pub_;
     ros::Publisher pcl_pub_, object_pcl_pub_;
     ros::Publisher object_as_obstacle_pub_;
+    ros::Publisher img_debug_pub_;
 
     int frame_counter_;
     cv::Mat ROI_;
@@ -124,10 +126,12 @@ private:
 
     void publish_evidence(const std::string &object_id,
                           const cv::Mat &image);
-    void publish_robot_position();
+    void publish_robot_position(const pcl::PointXY &object_position_world_frame);
     void publish_markers();
     void publish_object_as_obstacle(const pcl::PointXY &object_position_world_frame);
     double estimateDepth(const cv::Mat &depth_img, cv::Point mass_center);
+
+    void publishImageDebug(const cv::Mat &img);
 
     bool is_new_object(const pcl::PointXY &position);
 

@@ -28,7 +28,7 @@
 #define ROBOT_WIDTH     0.23 // [m]
 
 #define MIN_DEPTH       0.2                // [m]
-#define MAX_DEPTH       0.3                // [m]
+#define MAX_DEPTH       0.4                // [m]
 #define LASER_WIDTH     ROBOT_WIDTH        // [m]
 #define LASER_HEIGHT    0.05               // [m]
 #define RESOLUTION      0.005              // [m]

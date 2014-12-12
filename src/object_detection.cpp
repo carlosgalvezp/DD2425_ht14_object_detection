@@ -17,6 +17,8 @@ Object_Detection::Object_Detection()
 
     object_as_obstacle_pub_ = n.advertise<geometry_msgs::Point>(TOPIC_OBJECT_AS_OBSTACLE, 2);
 
+    img_debug_pub_ = n.advertise<sensor_msgs::Image>("object_detection/debug",10);
+
     // ** Subscribers
     rgb_sub_.subscribe(n, TOPIC_CAMERA_RGB, QUEUE_SIZE);
     depth_sub_.subscribe(n, TOPIC_CAMERA_DEPTH, QUEUE_SIZE);
@@ -53,6 +55,9 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         const cv::Mat& rgb_img     = rgb_ptr->image;
         const cv::Mat& depth_img   = depth_ptr->image;
 
+        if(cv::countNonZero(depth_img)==0)
+            return;
+
         // ** Detect Object
         std::string object_id;
         pcl::PointXY object_position_world_frame;
@@ -67,7 +72,7 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
             // ** Publish evidence, markers on the map and add robot position for global path planning
             publish_evidence(object_id, rgb_img);
             publish_markers();
-            publish_robot_position();
+            publish_robot_position(object_position_world_frame);
         }
     }
     else
@@ -90,7 +95,6 @@ bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth
 
 //    cv::imshow("Object mask", object_mask);
 //    cv::waitKey(1);
-
     // ** Get 3D position of the object
     if(color >=0)
     {
@@ -99,9 +103,13 @@ bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth
         PCL_Utils::transform2Dto3D(mass_center, depth, object_position_cam_frame);
         PCL_Utils::transformPoint(object_position_cam_frame, t_cam_to_robot_, object_position_robot_frame);
 
-//        std::cout << "Distance to robot: "<<object_position_robot_frame.x
-//                  <<"; MAX: "<< D_OBJECT_DETECTION_MAX
-//                  <<"; MIN: "<< D_OBJECT_DETECTION_MIN<<std::endl;
+        std::cout << "Distance to robot: "<<object_position_robot_frame.x
+                  <<"; MAX: "<< D_OBJECT_DETECTION_MAX
+                  <<"; MIN: "<< D_OBJECT_DETECTION_MIN<<std::endl;
+
+        // ** Avoid physically impossible situations
+        if(object_position_robot_frame.x < ROBOT_WIDTH)
+            return false;
 
         // ** Transform into world frame and publish to navigation in order to go to the object (if it's new)
 
@@ -110,7 +118,7 @@ bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth
         object_position_world_frame.x = tmp_object_position_world_frame.x;
         object_position_world_frame.y = tmp_object_position_world_frame.y;
 
-        if(object_position_robot_frame.x < 0.3)
+        if(object_position_robot_frame.x < 0.4)
             publish_object_as_obstacle(object_position_world_frame);
 
         // ** Call the recognition node if object found
@@ -122,15 +130,18 @@ bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth
             {
                 std::string tmp_classification;
 
-                object_recognition_.classify(bgr_img, depth_img, object_mask, t_cam_to_robot_, tmp_classification);
-                classifications_.push_back(tmp_classification);
-
-                // ** Get the msot likely result when we are now too close to the object
-                if(object_position_robot_frame.x < D_OBJECT_DETECTION_MIN || classifications_.size() > N_MAX_CLASSIFICATIONS)
+                if(object_recognition_.classify(bgr_img, depth_img, object_mask, t_cam_to_robot_, tmp_classification))
                 {
-                    object_id = RAS_Utils::get_most_repeated<std::string>(classifications_);
-                    classifications_.clear();
-                    return true;
+                    classifications_.push_back(tmp_classification);
+
+                    // ** Get the msot likely result when we are now too close to the object
+                    if(object_position_robot_frame.x < D_OBJECT_DETECTION_MIN || classifications_.size() > N_MAX_CLASSIFICATIONS)
+                    {
+                        object_id = RAS_Utils::get_most_repeated<std::string>(classifications_);
+                        ROS_ERROR("===============OBJECT FOUND %s================", object_id.c_str());
+                        classifications_.clear();
+                        return true;
+                    }
                 }
             }
         }
@@ -187,12 +198,15 @@ void Object_Detection::publish_evidence(const std::string &object_id, const cv::
 }
 
 
-void Object_Detection::publish_robot_position()
+void Object_Detection::publish_robot_position(const pcl::PointXY &object_position_world_frame)
 {
     geometry_msgs::Point position;
-    position.x = t_robot_to_world_(0,3);
-    position.y = t_robot_to_world_(1,3);
-    position.z = t_robot_to_world_(2,3);
+//    position.x = t_robot_to_world_(0,3);
+//    position.y = t_robot_to_world_(1,3);
+//    position.z = t_robot_to_world_(2,3);
+    position.x = object_position_world_frame.x;
+    position.y = object_position_world_frame.y;
+    position.z = 0;
 
     robot_position_pub_.publish(position);
 }
@@ -291,4 +305,15 @@ void Object_Detection::createROI(cv::Mat &img)
         }
     }
 }
+
+void Object_Detection::publishImageDebug(const cv::Mat &img)
+{
+    ROS_INFO("PUBLISHING DEBUG");
+    cv_bridge::CvImage out_msg;
+    out_msg.encoding = sensor_msgs::image_encodings::RGB8; // Or whatever
+    out_msg.image    = img;
+
+    img_debug_pub_.publish(out_msg.toImageMsg());
+}
+
 }  // namespace
