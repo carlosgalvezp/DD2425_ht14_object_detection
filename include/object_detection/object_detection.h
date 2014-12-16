@@ -19,6 +19,7 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <sensor_msgs/Image.h>
 #include "sensor_msgs/Imu.h"
+
 #include <geometry_msgs/Pose2D.h>
 #include <geometry_msgs/Point.h>
 #include <visualization_msgs/Marker.h>
@@ -66,11 +67,11 @@
 
 // Geometric parameters
 #define ROBOT_BORDER            0.115                     // [m] Distance from camera to robot front border
-#define D_OBJECT_DETECTION_MAX  (ROBOT_BORDER + 0.28)
-#define D_OBJECT_DETECTION_MIN  (ROBOT_BORDER + 0.05)       // [m] Distance at which we start trying to detect the object
+#define D_OBJECT_DETECTION_MAX  (ROBOT_BORDER + 0.27)
+#define D_OBJECT_DETECTION_MIN  (ROBOT_BORDER + 0.15)       // [m] Distance at which we start trying to detect the object
 #define NEW_OBJECT_MIN_DISTANCE 0.2                       // [m] Min distance between objects
 
-#define N_MAX_CLASSIFICATIONS 5 // Max number of classifications
+#define N_MAX_CLASSIFICATIONS 5// Max number of classifications
 namespace object_detection
 {
 class Object_Detection : rob::BasicNode{

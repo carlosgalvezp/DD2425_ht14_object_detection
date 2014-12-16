@@ -55,6 +55,9 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         const cv::Mat& rgb_img     = rgb_ptr->image;
         const cv::Mat& depth_img   = depth_ptr->image;
 
+        cv::Mat rgb_true;
+        cv::cvtColor(rgb_img, rgb_true, CV_BGR2RGB);
+        cv::imshow("RGB", rgb_true);
         if(cv::countNonZero(depth_img)==0)
             return;
 
@@ -66,12 +69,16 @@ void Object_Detection::RGBD_Callback(const sensor_msgs::ImageConstPtr &rgb_msg,
         // ** Publish evidence if found object
         if(foundObject)
         {
+            cv::waitKey(0);
             // ** Update the map
             objects_position_.push_back(Object(object_position_world_frame, object_id));
 
             // ** Publish evidence, markers on the map and add robot position for global path planning
             publish_evidence(object_id, rgb_img);
-            publish_markers();
+            if(this->phase_ == 0)
+            {
+                publish_markers();
+            }
             publish_robot_position(object_position_world_frame);
         }
     }
@@ -88,13 +95,13 @@ bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth
     floor_removal.remove_floor(bgr_img, depth_img, SCALE_FACTOR, this->t_cam_to_robot_, this->t_robot_to_cam_,
                                this->pcl_pub_, floor_mask);
     cv::bitwise_and(floor_mask, this->ROI_, floor_mask);
-
+    cv::imshow("Inverted floor mask", floor_mask);
     Color_Object_Detection color_detection(this->hsv_filter_);
     cv::Mat object_mask; cv::Point mass_center;
     int color = color_detection.detectColoredObject(bgr_img, floor_mask, object_mask, mass_center);
 
-//    cv::imshow("Object mask", object_mask);
-//    cv::waitKey(1);
+    cv::imshow("Object mask", object_mask);
+    cv::waitKey(1);
     // ** Get 3D position of the object
     if(color >=0)
     {
@@ -133,16 +140,20 @@ bool Object_Detection::detectObject(const cv::Mat &bgr_img, const cv::Mat &depth
                 if(object_recognition_.classify(bgr_img, depth_img, object_mask, t_cam_to_robot_, tmp_classification))
                 {
                     classifications_.push_back(tmp_classification);
-
-                    // ** Get the msot likely result when we are now too close to the object
-                    if(object_position_robot_frame.x < D_OBJECT_DETECTION_MIN || classifications_.size() > N_MAX_CLASSIFICATIONS)
-                    {
-                        object_id = RAS_Utils::get_most_repeated<std::string>(classifications_);
-                        ROS_ERROR("===============OBJECT FOUND %s================", object_id.c_str());
-                        classifications_.clear();
-                        return true;
-                    }
                 }
+                // ** Get the msot likely result when we are now too close to the object
+                if(object_position_robot_frame.x < D_OBJECT_DETECTION_MIN || classifications_.size() > N_MAX_CLASSIFICATIONS)
+                {
+                    object_id = RAS_Utils::get_most_repeated<std::string>(classifications_);
+                    ROS_ERROR("===============OBJECT FOUND %s================", object_id.c_str());
+                    classifications_.clear();
+                    return true;
+                }
+
+            }
+            else
+            {
+                ROS_WARN("I have already seen this object");
             }
         }
     }
@@ -195,6 +206,8 @@ void Object_Detection::publish_evidence(const std::string &object_id, const cv::
 
     evidence_pub_.publish(msg);
     speaker_pub_.publish(speaker_msg);
+    ros::Duration(0.5).sleep();
+    evidence_pub_.publish(msg);
 }
 
 
